@@ -1,0 +1,33 @@
+# .gitignore
+
+# -----------------
+# 1. ENVIRONNEMENT PYTHON
+# -----------------
+venv/                     # Votre environnement virtuel
+__pycache__/
+*.pyc
+.mypy_cache/              # Cache de typage (si utilisé)
+.pytest_cache/            # Cache de tests
+
+# -----------------
+# 2. FICHIERS SENSIBLES & LOCAUX
+# -----------------
+.env                      # CRITIQUE : Contient les mots de passe et clés de DB/MinIO
+db.sqlite3                # Si Django utilise SQLite (bien que nous utilisions Postgres)
+
+# -----------------
+# 3. DOCKER & INFRA LOCALE
+# -----------------
+# Les volumes persistants créés par Docker Compose
+postgres_data/
+minio_data/
+# Docker/IDE
+.vscode/
+
+# -----------------
+# 4. DJANGO & LOGS
+# -----------------
+# Fichiers de médias et de logs
+/media/
+/static/
+*.log
