@@ -1,0 +1,63 @@
+version: '3.8'
+
+services:
+  # 1. BASE DE DONNÉES PRINCIPALE (PostgreSQL)
+  postgres:
+    image: postgres:16-alpine
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432" # Optionnel, pour se connecter avec un outil externe
+
+  # 2. CACHE & QUEUE (Redis)
+  redis:
+    image: redis:7-alpine
+    restart: always
+    ports:
+      - "6379:6379"
+
+  # 3. STOCKAGE FICHIERS (MinIO)
+  minio:
+    image: minio/minio
+    restart: always
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD}
+    command: server /data --console-address :9001
+    volumes:
+      - minio_data:/data
+    ports:
+      - "9000:9000" # API S3
+      - "9001:9001" # Console d'administration
+
+  # 4. EMAIL DEV (Maildev)
+  maildev:
+    image: maildev/maildev
+    ports:
+      - "1080:1080" # Interface web pour voir les emails
+      - "1025:1025" # Port SMTP (pour l'application Django)
+
+  # 5. APPLICATION DJANGO (Placeholder)
+  web:
+    build: . # On utilisera un Dockerfile à la racine pour l'instant
+    command: tail -f /dev/null # Placeholder: Empêche le conteneur de s'arrêter
+    volumes:
+      - .:/app # Monte le répertoire courant dans le conteneur
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+      - redis
+      - minio
+
+# Volumes pour la persistance des données
+volumes:
+  postgres_data:
+  minio_data:
