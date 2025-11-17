@@ -67,8 +67,8 @@ class Dossier(models.Model):
     )
 
     # Données du Questionnaire (Utilisation du champ JSONField de PostgreSQL)
-    questionnaire_json = models.JSONField(default=dict) # structure des réponses + métadonnées
-    questionnaire_model = models.JSONField(default=dict) # copie immuable du modèle utilisé
+    questionnaire_json = models.JSONField(default=dict, null=True, blank=True) # structure des réponses + métadonnées
+    questionnaire_model = models.JSONField(default=dict, null=True, blank=True) # copie immuable du modèle utilisé
 
     # Concurrence Optimiste
     autosave_version = models.IntegerField(default=0)
