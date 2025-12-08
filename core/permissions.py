@@ -1,6 +1,6 @@
 # core/permissions.py
 from rest_framework import permissions
-from .models import Role, RiskItemStatus
+from .models import Role, RiskItemStatus, RiskItem
 
 # ============================================================================
 # 1. EXISTING - IsApplicationManager (Enhanced)
@@ -108,6 +108,8 @@ class CanModifyDossier(permissions.BasePermission):
     Permission to modify a dossier.
     Only AM owner can modify, and only in EN_EDITION status.
     Admin can always modify.
+    SO can ONLY READ dossiers they are responsible for (no write access whatsoever).
+    Delegation recipients (AM) can READ dossiers that contain risks delegated to them.
     """
     
     def has_permission(self, request, view):
@@ -118,19 +120,40 @@ class CanModifyDossier(permissions.BasePermission):
         
         user = request.user
         
-        # Read permissions
-        if request.method in permissions.SAFE_METHODS:
+        # SO can ONLY READ dossiers ils sont responsables
+        if user.role == Role.SO:
+            if request.method in permissions.SAFE_METHODS:
+                # SO can only VIEW if they are responsible for this dossier
+                return obj.responsible_so == user
+            else:
+                # SO CANNOT modify ANY dossier or perform ANY write operations
+                return False
+        
+        # Admin can do everything
+        if user.role == Role.ADMIN or user.is_superuser:
             return True
         
-        # Write permissions - only owner in EN_EDITION or Admin
-        is_owner = obj.am == user
-        is_admin = user.role == Role.ADMIN or user.is_superuser
+        # For non-SO, non-admin users (AM):
+        # Read permissions
+        if request.method in permissions.SAFE_METHODS:
+            # Owner (AM) can always read
+            if obj.am == user:
+                return True
+            # Delegation recipient can read if they have delegated items
+            is_delegation_recipient = RiskItem.objects.filter(
+                register__dossier=obj,
+                delegated_to=user
+            ).exists()
+            return is_delegation_recipient
         
-        if not is_owner and not is_admin:
+        # Write permissions - only owner in EN_EDITION
+        is_owner = obj.am == user
+        
+        if not is_owner:
             return False
         
-        # If not admin, check status
-        if not is_admin and obj.status != DossierStatus.EN_EDITION:
+        # Check status - can only modify in EN_EDITION
+        if obj.status != DossierStatus.EN_EDITION:
             return False
         
         return True
@@ -187,3 +210,85 @@ class IsRiskItemOwnerOrDelegate(permissions.BasePermission):
         
         # Write - only owner can modify
         return obj.owner_user == user
+
+
+# ============================================================================
+# 8. NEW - CanManageRiskRegister
+# ============================================================================
+
+class CanManageRiskRegister(permissions.BasePermission):
+    """
+    Permission for risk register operations.
+    - SO responsible for dossier can CREATE and UPDATE (write)
+    - AM (dossier owner) can READ and UPDATE risk items
+    - Delegation recipients can ONLY READ risk register (read-only to dossier)
+    - Admin can do everything
+    """
+    
+    def has_permission(self, request, view):
+        return request.user.is_authenticated
+    
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        
+        # Admin/Superuser can do everything
+        if user.is_superuser or user.role == Role.ADMIN:
+            return True
+        
+        # SO: Can READ and UPDATE (for their dossiers)
+        if user.role == Role.SO:
+            return obj.dossier.responsible_so == user
+        
+        # AM: Check if owner or delegation recipient
+        if user.role == Role.AM:
+            is_owner = obj.dossier.am == user
+            is_delegation_recipient = RiskItem.objects.filter(
+                register=obj,
+                delegated_to=user
+            ).exists()
+            
+            # Owner can do anything, recipients can only READ
+            if is_owner:
+                return True
+            elif is_delegation_recipient:
+                # Delegation recipients: READ-ONLY on the register itself
+                return request.method in permissions.SAFE_METHODS
+        
+        return False
+
+
+class CanManageRiskItem(permissions.BasePermission):
+    """
+    Permission for risk item operations.
+    - Owner (AM) and delegated user can perform actions
+    - SO/Admin have full access
+    - Delegation recipients can ONLY accept/refuse their delegated item
+    """
+    
+    def has_permission(self, request, view):
+        return request.user.is_authenticated
+    
+    def has_object_permission(self, request, view, obj):
+        user = request.user
+        
+        # SO/Admin have full access
+        if user.role in [Role.SO, Role.ADMIN]:
+            return True
+        
+        # AM (dossier owner) has full access to items in their register
+        if user.role == Role.AM:
+            if obj.register.dossier.am == user:
+                return True
+            
+            # Delegation recipient: can ONLY see and act on items delegated to them
+            if obj.delegated_to == user:
+                # Allow safe methods (GET)
+                if request.method in permissions.SAFE_METHODS:
+                    return True
+                # Allow POST to accept/refuse endpoints only
+                if hasattr(view, 'action') and view.action in ['accept', 'refuse']:
+                    return True
+            
+            return False
+        
+        return False

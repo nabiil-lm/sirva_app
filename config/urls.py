@@ -18,15 +18,8 @@ from django.contrib import admin
 from django.urls import path, include
 
 urlpatterns = [
-
-    # Le chemin vide ('') pointe vers l'application 'core'
-    path('', include('core.urls')),
-    
     path('admin/', admin.site.urls),
-
-    # 🚨 ROUTE PRINCIPALE DE L'API 🚨
-    # Toutes les requêtes API (ex: /api/dossiers/) seront gérées par l'application 'core'
-    path('api/', include('core.urls')),
-
-
+    
+    # Include core.urls directly at root level (they already have /api/ prefix)
+    path('', include('core.urls')),
 ]

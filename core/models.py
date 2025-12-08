@@ -23,6 +23,19 @@ class DossierStatus(models.TextChoices):
     PRET_VALIDATION = 'PRET_VALIDATION', _('Prêt pour Validation Finale')
     VALIDE = 'VALIDE', _('Validé')
 
+class QuestionType(models.TextChoices):
+    """Types of questions in a questionnaire"""
+    TRUE_FALSE = 'TRUE_FALSE', _('Vrai/Faux')
+    MULTIPLE_CHOICE = 'MULTIPLE_CHOICE', _('Choix multiples')
+    SINGLE_CHOICE = 'SINGLE_CHOICE', _('Choix unique')
+    TEXT = 'TEXT', _('Texte libre')
+
+class QuestionnaireStatus(models.TextChoices):
+    """Status of questionnaire templates"""
+    DRAFT = 'DRAFT', _('Brouillon')
+    PUBLISHED = 'PUBLISHED', _('Publié')
+    ARCHIVED = 'ARCHIVED', _('Archivé')
+
 # --- 1. Modèle Utilisateur Personnalisé (Role-Based Access Control) ---
 
 class User(AbstractUser):
@@ -46,7 +59,104 @@ class User(AbstractUser):
     def __str__(self):
         return self.email
 
-# --- 2. Modèle Dossier ---
+# --- 2. Modèles Questionnaire ---
+
+class QuestionnaireTemplate(models.Model):
+    """
+    Global questionnaire template that admins can define.
+    These templates are reusable across multiple dossiers.
+    """
+    name = models.CharField(
+        max_length=255,
+        verbose_name=_("Nom du questionnaire"),
+        unique=True
+    )
+    description = models.TextField(
+        blank=True,
+        verbose_name=_("Description du questionnaire")
+    )
+    status = models.CharField(
+        max_length=10,
+        choices=QuestionnaireStatus.choices,
+        default=QuestionnaireStatus.DRAFT,
+        verbose_name=_("Statut")
+    )
+    created_by = models.ForeignKey(
+        'User',
+        on_delete=models.SET_NULL,
+        null=True,
+        related_name='questionnaires_created',
+        verbose_name=_("Créé par")
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.name} ({self.status})"
+    
+    class Meta:
+        ordering = ['-updated_at']
+        verbose_name = _("Modèle de questionnaire")
+        verbose_name_plural = _("Modèles de questionnaire")
+    
+    @property
+    def question_count(self):
+        return self.questions.count()
+
+
+class Question(models.Model):
+    """
+    Individual question in a questionnaire template.
+    """
+    template = models.ForeignKey(
+        QuestionnaireTemplate,
+        on_delete=models.CASCADE,
+        related_name='questions',
+        verbose_name=_("Modèle")
+    )
+    order = models.PositiveIntegerField(
+        default=0,
+        verbose_name=_("Ordre d'affichage")
+    )
+    text = models.TextField(
+        verbose_name=_("Texte de la question")
+    )
+    question_type = models.CharField(
+        max_length=20,
+        choices=QuestionType.choices,
+        verbose_name=_("Type de question")
+    )
+    is_mandatory = models.BooleanField(
+        default=True,
+        verbose_name=_("Obligatoire")
+    )
+    
+    # For MULTIPLE_CHOICE and SINGLE_CHOICE types
+    choices_json = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("Liste des options pour choix multiples/uniques. Format: ['option1', 'option2', ...]"),
+        verbose_name=_("Options")
+    )
+    
+    # Additional metadata
+    help_text = models.TextField(
+        blank=True,
+        verbose_name=_("Texte d'aide")
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"{self.template.name} - Q{self.order}: {self.text[:50]}"
+    
+    class Meta:
+        ordering = ['template', 'order']
+        verbose_name = _("Question")
+        verbose_name_plural = _("Questions")
+        unique_together = ('template', 'order')
+
+
+# --- 3. Modèle Dossier ---
 
 class Dossier(models.Model):
     title = models.CharField(max_length=255)
@@ -66,12 +176,29 @@ class Dossier(models.Model):
         verbose_name=_("Application Manager")
     )
 
-    # Données du Questionnaire (Utilisation du champ JSONField de PostgreSQL)
-    questionnaire_json = models.JSONField(default=dict, null=True, blank=True) # structure des réponses + métadonnées
-    questionnaire_model = models.JSONField(default=dict, null=True, blank=True) # copie immuable du modèle utilisé
+    # NEW: Relation - Dossier is assigned to a Security Officer
+    responsible_so = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dossiers_assigned',
+        limit_choices_to={'role': 'SO'},
+        verbose_name=_("Responsible Security Officer"),
+        help_text=_("The Security Officer responsible for this dossier")
+    )
 
-    # Concurrence Optimiste
-    autosave_version = models.IntegerField(default=0)
+    # Relation: Dossier uses a QuestionnaireTemplate
+    questionnaire_template = models.ForeignKey(
+        'QuestionnaireTemplate',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='dossiers',
+        verbose_name=_("Modèle de questionnaire")
+    )
+
+    # Submission flag
     is_submitted = models.BooleanField(default=False)
 
     # Dates
@@ -80,6 +207,46 @@ class Dossier(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.status})"
+
+
+class QuestionnaireAnswer(models.Model):
+    """
+    Answers to questionnaire questions for a specific dossier.
+    """
+    dossier = models.ForeignKey(
+        'Dossier',
+        on_delete=models.CASCADE,
+        related_name='questionnaire_answers',
+        verbose_name=_("Dossier")
+    )
+    question = models.ForeignKey(
+        Question,
+        on_delete=models.CASCADE,
+        related_name='answers',
+        verbose_name=_("Question")
+    )
+    
+    # Answer value - stored as text to accommodate all question types
+    answer_value = models.TextField(
+        blank=True,
+        verbose_name=_("Réponse")
+    )
+    
+    # Metadata
+    answered_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name=_("Date de réponse")
+    )
+
+    def __str__(self):
+        return f"{self.dossier.title} - Q{self.question.order}"
+    
+    class Meta:
+        ordering = ['dossier', 'question__order']
+        verbose_name = _("Réponse au questionnaire")
+        verbose_name_plural = _("Réponses au questionnaire")
+        unique_together = ('dossier', 'question')
+
     
 # core/models.py (extrait)
 # ... après les Enums et le modèle Dossier ...
@@ -97,10 +264,21 @@ class ArchitectureDoc(models.Model):
         related_name='architecture_docs'
     )
     filename = models.CharField(max_length=255)
-    s3_key = models.CharField(max_length=255)
-    rssi_confirmed = models.BooleanField(default=False)
     
-    # Missing fields to add:
+    # CHANGED: Renamed s3_key to local_filepath
+    local_filepath = models.CharField(
+        max_length=255,
+        verbose_name=_("Chemin local du fichier")
+    )
+    
+    # NEW: Added site_filepath for the download URL
+    site_filepath = models.CharField(
+        max_length=255,
+        verbose_name=_("Chemin d'accès pour téléchargement"),
+        help_text=_("URL relative pour télécharger le fichier, ex: /api/dossiers/1/documents/document.pdf")
+    )
+    
+    rssi_confirmed = models.BooleanField(default=False)
     mime_type = models.CharField(max_length=100, blank=True)
     size = models.PositiveIntegerField(default=0)  # bytes
     uploaded_at = models.DateTimeField(auto_now_add=True)
@@ -192,11 +370,12 @@ class RiskStatus(models.TextChoices):
     PARTIALLY_ACCEPTED = 'PARTIALLY_ACCEPTED', _('Partiellement accepté')
     ACCEPTED = 'ACCEPTED', _('Accepté')
 
-# Basé sur [cite: 225]
 class RiskItemStatus(models.TextChoices):
     PENDING = 'PENDING', _('En attente d\'acceptation')
-    DELEGATED = 'DELEGATED', _('Délégué')
+    DELEGATED_PENDING = 'DELEGATED_PENDING', _('Délégué - En attente')
     ACCEPTED = 'ACCEPTED', _('Accepté')
+    CONTESTED = 'CONTESTED', _('Contesté')
+    REFUSED = 'REFUSED', _('Refusé')
 
 # --- Registre de Risques (RiskRegister) ---
 class RiskRegister(models.Model):
@@ -247,9 +426,9 @@ class RiskItem(models.Model):
     )
     delegated_to = models.ForeignKey(
         'User', 
-        on_delete=models.SET_NULL, 
-        null=True, 
-        blank=True, 
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
         related_name='risk_items_delegated',
         verbose_name=_("Délégué à")
     )
@@ -258,22 +437,22 @@ class RiskItem(models.Model):
     title = models.CharField(max_length=255, verbose_name=_("Titre du risque"))
     description = models.TextField(blank=True, verbose_name=_("Description"))
     
-    # Risk assessment - using the enums defined above
+    # Risk assessment
     likelihood = models.CharField(
         max_length=20, 
-        choices=Likelihood.choices,  # Line 166
+        choices=Likelihood.choices,
         default=Likelihood.POSSIBLE,
         verbose_name=_("Probabilité")
     )
     impact = models.CharField(
         max_length=20, 
-        choices=Impact.choices,  # Line 174
+        choices=Impact.choices,
         default=Impact.MODERATE,
         verbose_name=_("Impact")
     )
     level = models.CharField(
         max_length=10, 
-        choices=RiskLevel.choices,  # Line 182
+        choices=RiskLevel.choices,
         default=RiskLevel.MEDIUM,
         verbose_name=_("Niveau de risque")
     )
@@ -282,9 +461,29 @@ class RiskItem(models.Model):
     mitigation = models.TextField(blank=True, verbose_name=_("Mesures de mitigation"))
     status = models.CharField(
         max_length=20, 
-        choices=RiskItemStatus.choices,  # Line 196
+        choices=RiskItemStatus.choices,
         default=RiskItemStatus.PENDING,
         verbose_name=_("Statut")
+    )
+    
+    # NEW: Contestation tracking
+    contested_by = models.ForeignKey(
+        'User',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='risk_items_contested',
+        verbose_name=_("Contesté par")
+    )
+    contested_at = models.DateTimeField(null=True, blank=True)
+    contestation_reason = models.TextField(blank=True, verbose_name=_("Raison de la contestation"))
+    
+    # NEW: Refusal tracking (to prevent re-delegation to same user)
+    refused_by = models.JSONField(
+        default=list,
+        blank=True,
+        help_text=_("List of user IDs who refused this delegation"),
+        verbose_name=_("Refusé par")
     )
     
     # Timestamps
