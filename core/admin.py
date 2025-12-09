@@ -53,8 +53,23 @@ class IaCheckAdmin(admin.ModelAdmin):
 
 @admin.register(IaCrossCheck)
 class IaCrossCheckAdmin(admin.ModelAdmin):
-    list_display = ('dossier', 'status', 'secure_score', 'created_at')
-    list_filter = ('status',)
+    list_display = ['dossier', 'status', 'secure_score', 'created_at']
+    list_filter = ['status', 'created_at']
+    search_fields = ['dossier__name', 'findings']
+    readonly_fields = ['created_at', 'updated_at', 'findings']
+    
+    fieldsets = (
+        ('Dossier', {
+            'fields': ('dossier',)
+        }),
+        ('Analysis Results', {
+            'fields': ('status', 'secure_score', 'findings')
+        }),
+        ('Timestamps', {
+            'fields': ('created_at', 'updated_at'),
+            'classes': ('collapse',)
+        }),
+    )
 
 @admin.register(ArchitectureDoc)
 class ArchitectureDocAdmin(admin.ModelAdmin):

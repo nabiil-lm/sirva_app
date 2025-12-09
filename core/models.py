@@ -161,11 +161,18 @@ class Question(models.Model):
 class Dossier(models.Model):
     title = models.CharField(max_length=255)
     
+    # Status tracking
     status = models.CharField(
-        max_length=30,
+        max_length=50,
         choices=DossierStatus.choices,
-        default=DossierStatus.EN_EDITION,
-        verbose_name=_("Statut du Dossier")
+        default=DossierStatus.EN_EDITION
+    )
+    is_submitted = models.BooleanField(default=False)
+    
+    # NEW: Track if architecture documents have been submitted
+    architecture_docs_submitted = models.BooleanField(
+        default=False,
+        help_text="Set to True when AM submits all architecture documents. Prevents further uploads."
     )
 
     # Relation : Un Dossier est géré par un AM (Application Manager)
@@ -308,6 +315,7 @@ class IaCheck(models.Model):
         blank=True,
         verbose_name=_("Score de sécurité")
     )
+    raw_response = models.TextField(blank=True, default='')  # ADD THIS FIELD if missing
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

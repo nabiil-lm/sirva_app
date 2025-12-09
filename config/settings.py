@@ -17,19 +17,19 @@ from pathlib import Path
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-# Chargez les variables du fichier .env
+# Load environment variables from .env file
 load_dotenv()
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
+# Quick-start development settings
 SECRET_KEY = os.getenv('SECRET_KEY')
-
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-
 ALLOWED_HOSTS = []
+
+# 🚨 GEMINI API KEY - Make sure this is accessible
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+if not GEMINI_API_KEY:
+    import warnings
+    warnings.warn("⚠️ GEMINI_API_KEY is not set in environment variables!")
 
 
 # Application definition
@@ -180,3 +180,18 @@ MEDIA_ROOT = BASE_DIR / 'uploads'
 
 # Create uploads directory if it doesn't exist
 MEDIA_ROOT.mkdir(exist_ok=True)
+
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'DEBUG',
+    },
+}

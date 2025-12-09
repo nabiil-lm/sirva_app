@@ -163,13 +163,20 @@ class ArchitectureDocSerializer(serializers.ModelSerializer):
         help_text="Confirm that this document has been reviewed by RSSI (required)"
     )
     
+    submit_documents = serializers.BooleanField(
+        write_only=True,
+        required=False,
+        default=False,
+        help_text="Check this box to submit all documents and lock further uploads"
+    )
+    
     class Meta:
         model = ArchitectureDoc
         fields = [
             'id', 'file', 'filename', 'local_filepath', 'site_filepath', 'rssi_confirmed',
-            'mime_type', 'size', 'uploaded_at', 'version'
+            'mime_type', 'size', 'uploaded_at', 'submit_documents'
         ]
-        read_only_fields = ['uploaded_at', 'filename', 'local_filepath', 'site_filepath', 'mime_type', 'size']
+        read_only_fields = ['id', 'uploaded_at', 'filename', 'local_filepath', 'site_filepath', 'mime_type', 'size']
     
     def validate_file(self, value):
         """
@@ -218,6 +225,9 @@ class ArchitectureDocSerializer(serializers.ModelSerializer):
         """
         # Remove file from validated_data since it's write-only
         validated_data.pop('file', None)
+        
+        # Remove the submit_documents field as it's not a model field
+        validated_data.pop('submit_documents', None)
         
         # Create the ArchitectureDoc instance
         return ArchitectureDoc.objects.create(**validated_data)
@@ -504,62 +514,64 @@ class DossierSubmitSerializer(serializers.Serializer):
     pass
 
 class RiskItemActionSerializer(serializers.Serializer):
+    """
+    Serializer for AM to perform actions on existing risk items
+    (Accept, Delegate, or Contest)
+    """
     ACTION_ACCEPT = 'accept'
-    ACTION_CONTEST = 'contest'
     ACTION_DELEGATE = 'delegate'
-    ACTION_CHOICES = (
-        (ACTION_ACCEPT, 'Accepter'),
-        (ACTION_CONTEST, 'Contester'),
-        (ACTION_DELEGATE, 'Déléguer'),
-    )
-
-    risk_item = serializers.ChoiceField(
-        choices=[],
-        label="Risque à traiter",
-        help_text="Sélectionnez un risque à traiter"
+    ACTION_CONTEST = 'contest'
+    
+    ACTION_CHOICES = [
+        (ACTION_ACCEPT, 'Accept'),
+        (ACTION_DELEGATE, 'Delegate'),
+        (ACTION_CONTEST, 'Contest'),
+    ]
+    
+    risk_item = serializers.PrimaryKeyRelatedField(
+        queryset=RiskItem.objects.all(),
+        help_text="Select a risk item to perform action on"
     )
     action = serializers.ChoiceField(
         choices=ACTION_CHOICES,
-        label="Action",
-        help_text="Choisissez l'action à effectuer (Accepter, Contester, Déléguer)"
+        help_text="Choose action: Accept, Delegate, or Contest"
     )
-    delegate_email = serializers.EmailField(
+    delegate_user = serializers.PrimaryKeyRelatedField(
+        queryset=User.objects.filter(role=Role.AM),
         required=False,
-        allow_blank=False,
-        label="Email du délégué",
-        help_text="Adresse e-mail du destinataire de la délégation (obligatoire pour déléguer)"
+        allow_null=True,
+        help_text="Email of user to delegate to (required for Delegate action)"
     )
     contest_reason = serializers.CharField(
         required=False,
-        allow_blank=False,
-        label="Raison de contestation",
-        help_text="Expliquez la raison de la contestation (obligatoire pour contester)",
-        style={'base_template': 'textarea.html'}
+        allow_blank=True,
+        help_text="Reason for contesting (required for Contest action)"
     )
-
+    
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        
+        # Dynamically filter risk_item queryset to only show items in the current register
+        request = self.context.get('request')
         register = self.context.get('register')
-        if not register:
-            return
-        items = register.items.all().order_by('title')
-        choices = [(str(item.id), item.title) for item in items]
-        self.fields['risk_item'].choices = choices
-        self._register = register
-
-    def validate(self, attrs):
-        action = attrs['action']
+        
+        if register:
+            # Only show risk items from this specific register
+            self.fields['risk_item'].queryset = register.items.all()
+    
+    def validate(self, data):
+        """Validate based on action type"""
+        action = data.get('action')
+        
         if action == self.ACTION_DELEGATE:
-            email = attrs.get('delegate_email')
-            if not email:
-                raise serializers.ValidationError({'delegate_email': "Champ requis pour déléguer un risque."})
-            try:
-                attrs['delegate_user'] = User.objects.get(email=email)
-            except User.DoesNotExist:
-                raise serializers.ValidationError({'delegate_email': f"Aucun utilisateur trouvé avec l'email {email}."})
-        elif action == self.ACTION_CONTEST and not attrs.get('contest_reason'):
-            raise serializers.ValidationError({'contest_reason': "Veuillez expliquer la raison de la contestation."})
-        return attrs
+            if not data.get('delegate_user'):
+                raise serializers.ValidationError("delegate_user is required for Delegate action")
+        
+        if action == self.ACTION_CONTEST:
+            if not data.get('contest_reason'):
+                raise serializers.ValidationError("contest_reason is required for Contest action")
+        
+        return data
 
 class RiskItemDelegationActionSerializer(serializers.Serializer):
     """
@@ -700,3 +712,13 @@ class ContestedRiskActionSerializer(serializers.Serializer):
         
         attrs['risk_object'] = risk
         return attrs
+
+class DossierStatusChangeSerializer(serializers.Serializer):
+    """Serializer for changing dossier status with dropdown choices"""
+    status = serializers.ChoiceField(
+        choices=DossierStatus.choices,
+        help_text="Select a new status for this dossier"
+    )
+    
+    class Meta:
+        fields = ['status']
