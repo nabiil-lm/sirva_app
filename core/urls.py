@@ -13,7 +13,8 @@ from .views import (
     QuestionViewSet,
     QuestionnaireAnswerViewSet,
     AuditLogViewSet,
-    home_dashboard
+    home_dashboard,
+    LoginView
 )
 
 # ============================================================================
@@ -122,6 +123,7 @@ urlpatterns = [
     
     # ========== HOME DASHBOARD ==========
     path('', home_dashboard, name='home'),
+    path('auth/login/', LoginView.as_view(), name='login'),
 ]
 
 # Risk Items nested under Risk Register

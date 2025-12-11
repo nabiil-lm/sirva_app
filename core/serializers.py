@@ -1,5 +1,6 @@
 # core/serializers.py
 from rest_framework import serializers
+from django.contrib.auth import get_user_model, authenticate
 from .models import (
     Dossier, User, DossierStatus, Role, 
     IaCheck, IaCrossCheck, IaStatus,
@@ -7,6 +8,8 @@ from .models import (
     ArchitectureDoc, AuditLog, AuditLogEntry, AuditActionType,
     QuestionnaireTemplate, Question, QuestionnaireAnswer, QuestionType, QuestionnaireStatus
 )
+
+User = get_user_model()
 
 # Sérialiseur pour l'utilisateur (utilisé dans Dossier pour afficher l'AM)
 class UserSerializer(serializers.ModelSerializer):
@@ -16,6 +19,29 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'email', 'first_name', 'last_name', 'role', 'role_display']
         read_only_fields = ['role']
+
+# Serializer for user login
+class LoginSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    password = serializers.CharField(write_only=True)
+    
+    def validate(self, data):
+        email = data.get('email')
+        password = data.get('password')
+        
+        if not email or not password:
+            raise serializers.ValidationError("Email and password are required")
+        
+        # Authenticate by email
+        try:
+            user = User.objects.get(email=email)
+            if not user.check_password(password):
+                raise serializers.ValidationError("Invalid email or password")
+        except User.DoesNotExist:
+            raise serializers.ValidationError("Invalid email or password")
+        
+        data['user'] = user
+        return data
 
 # Sérialiseur pour le modèle Dossier
 class DossierSerializer(serializers.ModelSerializer):

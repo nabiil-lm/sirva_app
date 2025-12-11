@@ -2180,3 +2180,32 @@ class QuestionnaireAnswerViewSet(DossierFilterMixin, viewsets.ModelViewSet):
 def home_dashboard(request):
     """Render home dashboard (placeholder for frontend)"""
     return render(request, 'core/dashboard.html')
+
+# ============================================================================
+# 12. NEW LoginView (Token Authentication)
+# ============================================================================
+
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.status import HTTP_400_BAD_REQUEST, HTTP_200_OK
+from rest_framework.authtoken.models import Token
+from django.contrib.auth import get_user_model
+from .serializers import LoginSerializer, UserSerializer
+
+User = get_user_model()
+
+class LoginView(APIView):
+    def post(self, request):
+        serializer = LoginSerializer(data=request.data)
+        
+        if serializer.is_valid():
+            user = serializer.validated_data['user']
+            token, created = Token.objects.get_or_create(user=user)
+            user_serializer = UserSerializer(user)
+            
+            return Response({
+                'token': token.key,
+                'user': user_serializer.data
+            }, status=HTTP_200_OK)
+        
+        return Response(serializer.errors, status=HTTP_400_BAD_REQUEST)

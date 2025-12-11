@@ -19,6 +19,7 @@ __pycache__/
 # CRITIQUE : Contient les mots de passe et clés de DB/MinIO
 db.sqlite3                
 # Si Django utilise SQLite (bien que nous utilisions Postgres)
+uploads/
 
 # -----------------
 # 3. DOCKER & INFRA LOCALE
