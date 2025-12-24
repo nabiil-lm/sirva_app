@@ -18,6 +18,22 @@ from .views import (
 )
 
 # ============================================================================
+# SIRVA API RESOURCE HIERARCHY
+# ============================================================================
+# 1. Dossiers (Root) -> /api/dossiers/
+#    ├── IA Phase 1 Results -> /ia1/
+#    ├── IA Phase 2 Results -> /ia2/
+#    ├── Architecture Documents -> /documents/
+#    ├── Risk Register -> /risk-register/
+#    │   └── Risk Items -> /items/
+#    ├── Questionnaire Answers -> /answers/
+#    └── Audit Log -> /audit-log/
+#
+# 2. Questionnaires (Root) -> /api/questionnaires/
+#    └── Questions -> /questions/
+# ============================================================================
+
+# ============================================================================
 # Main Router for Top-Level Resources
 # ============================================================================
 router = DefaultRouter()
