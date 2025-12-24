@@ -2,7 +2,8 @@ from .models import QuestionnaireTemplate, Question, QuestionnaireAnswer, Questi
 from .serializers import (
     QuestionnaireTemplateSerializer, QuestionnaireTemplateSimpleSerializer,
     QuestionSerializer, QuestionnaireAnswerSerializer, BulkQuestionnaireAnswerSerializer,
-    DossierSubmitSerializer, RiskItemActionSerializer, RiskItemDelegationActionSerializer  # ADD RiskItemActionSerializer
+    DossierSubmitSerializer, RiskItemActionSerializer, RiskItemDelegationActionSerializer,
+    ContestedRiskActionSerializer, SoContestReviewSerializer # ADD SoContestReviewSerializer
 )
 from django.shortcuts import render, get_object_or_404
 from rest_framework import viewsets, permissions, status, serializers
@@ -15,7 +16,8 @@ from django.http import FileResponse
 from django.conf import settings
 import os
 from pathlib import Path
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, APIException
+from django.db.utils import OperationalError
 
 from .models import (
     Dossier, Role, DossierStatus, ArchitectureDoc, RiskItem, 
@@ -93,7 +95,7 @@ class DossierViewSet(viewsets.ModelViewSet):
         """
         Filter dossiers based on user role:
         - AM: Only their own dossiers (all statuses)
-        - SO: Only dossiers they are responsible for AND have QUESTIONNAIRE_SOUMIS or subsequent status
+        - SO: Only dossiers they are responsible for (ALL statuses to follow progress)
         - Delegation Recipients (AM): Dossiers that contain risk items delegated to them
         - Admin: All dossiers
         """
@@ -102,21 +104,9 @@ class DossierViewSet(viewsets.ModelViewSet):
             return Dossier.objects.all().order_by('-updated_at')
         elif user.role == Role.SO:
             # SO can ONLY see dossiers they are responsible for
-            # AND that have been submitted or are in later stages (not EN_EDITION)
-            submitted_statuses = [
-                DossierStatus.QUESTIONNAIRE_SOUMIS,
-                DossierStatus.IA1_INCOHERENT,
-                DossierStatus.IA1_COHERENT,
-                DossierStatus.ARCHI_UPLOAD_EN_COURS,
-                DossierStatus.IA2_INCOHERENT,
-                DossierStatus.IA2_COHERENT,
-                DossierStatus.RISQUES_EN_COURS,
-                DossierStatus.PRET_VALIDATION,
-                DossierStatus.VALIDE,
-            ]
+            # CHANGED: Removed status filter so SO can follow progress from the start
             return Dossier.objects.filter(
-                responsible_so=user,
-                status__in=submitted_statuses
+                responsible_so=user
             ).order_by('-updated_at')
         else:
             # AM: Their own dossiers OR dossiers with risk items delegated to them
@@ -130,6 +120,10 @@ class DossierViewSet(viewsets.ModelViewSet):
         When creating a dossier, set the AM to the current user.
         SO assignment is handled by the serializer.
         """
+        # NEW: Restrict creation to AMs only
+        if self.request.user.role != Role.AM and not self.request.user.is_superuser:
+             raise PermissionDenied("Only Application Managers can create dossiers.")
+
         dossier = serializer.save(am=self.request.user, status=DossierStatus.EN_EDITION)
         
         # If questionnaire_template was provided, auto-create answer records
@@ -185,11 +179,31 @@ class DossierViewSet(viewsets.ModelViewSet):
             'templates': serializer.data
         }, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['get'])
+    def available_sos(self, request):
+        """
+        Get list of available Security Officers for assignment.
+        """
+        sos = User.objects.filter(role=Role.SO).order_by('last_name', 'first_name', 'email')
+        data = [{'id': so.id, 'email': so.email, 'name': f"{so.first_name} {so.last_name}".strip() or so.email} for so in sos]
+        return Response(data)
+
     @action(detail=True, methods=['get'])
     def full(self, request, pk=None):
         """
-        Get dossier with all related data (documents, risks, IA results, audit log)
-        Used for dashboard single-page view
+        Get dossier with all related data (documents, risks, IA results, audit log).
+        
+        This 'composite' endpoint is used by the frontend Dashboard to load the 
+        entire dossier state in a single HTTP request, rather than making 
+        separate calls to /documents/, /ia1/, /ia2/, etc.
+        
+        It returns:
+        - Dossier details
+        - Architecture Documents (via ArchitectureDocSerializer)
+        - IA1 Analysis Results
+        - IA2 Analysis Results
+        - Risk Register & Items
+        - Audit Log
         """
         dossier = self.get_object()
         serializer = DossierSerializer(dossier)
@@ -202,11 +216,39 @@ class DossierViewSet(viewsets.ModelViewSet):
         
         # Add IA results if they exist
         try:
+            ia1 = dossier.ia1_result
+            findings = ia1.findings
+            
+            # FIX: If findings lacks structured data but raw_response has JSON, try to parse and merge
+            # This handles cases where the task saved findings incorrectly or in a legacy format
+            if isinstance(findings, dict) and 'strengths' not in findings and ia1.raw_response:
+                try:
+                    import json
+                    import re
+                    # Clean markdown code blocks
+                    clean_json = re.sub(r'```json\s*|\s*```', '', ia1.raw_response).strip()
+                    # Find JSON object if surrounded by text
+                    if not clean_json.startswith('{'):
+                        match = re.search(r'(\{.*\})', clean_json, re.DOTALL)
+                        if match:
+                            clean_json = match.group(1)
+                            
+                    if clean_json.startswith('{'):
+                        parsed = json.loads(clean_json)
+                        if isinstance(parsed, dict):
+                            # Merge parsed data into findings (preserving existing keys)
+                            # We use a copy to avoid modifying the DB object in memory unexpectedly
+                            findings = findings.copy()
+                            findings.update(parsed)
+                except Exception as e:
+                    logger.warning(f"Failed to patch IA1 findings from raw_response: {e}")
+
             data['ia1_result'] = {
-                'status': dossier.ia1_result.status,
-                'secure_score': float(dossier.ia1_result.secure_score or 0),
-                'findings': dossier.ia1_result.findings,
-                'created_at': dossier.ia1_result.created_at.isoformat()
+                'status': ia1.status,
+                'secure_score': float(ia1.secure_score or 0),
+                'findings': findings,
+                'raw_response': ia1.raw_response,
+                'created_at': ia1.created_at.isoformat()
             }
         except AttributeError:
             data['ia1_result'] = None
@@ -224,14 +266,27 @@ class DossierViewSet(viewsets.ModelViewSet):
         # Add risk register with items
         try:
             risk_register = dossier.risk_register
-            data['risk_register'] = {
-                'id': risk_register.id,
-                'status': risk_register.status,
-                'total_items': risk_register.total_items,
-                'accepted_items': risk_register.accepted_items,
-                'items': RiskItemSerializer(risk_register.items.all(), many=True).data,
-                'created_at': risk_register.created_at.isoformat()
-            }
+            
+            # CHANGED: Hide risk register from AM if it is DRAFT (work in progress by SO)
+            if request.user.role == Role.AM and risk_register.status == RiskStatus.DRAFT:
+                data['risk_register'] = None
+            else:
+                try:
+                    items_data = RiskItemSerializer(risk_register.items.all(), many=True).data
+                except OperationalError as e:
+                    # Catch missing column errors to provide a clearer message
+                    if "no such column" in str(e):
+                        raise APIException("Database schema mismatch. Please run 'python manage.py makemigrations' and 'python manage.py migrate'.")
+                    raise e
+
+                data['risk_register'] = {
+                    'id': risk_register.id,
+                    'status': risk_register.status,
+                    'total_items': risk_register.total_items,
+                    'accepted_items': risk_register.accepted_items,
+                    'items': items_data,
+                    'created_at': risk_register.created_at.isoformat()
+                }
         except AttributeError:
             data['risk_register'] = None
         
@@ -502,10 +557,15 @@ class DossierViewSet(viewsets.ModelViewSet):
             )
         
         # Status check: dossier must be in PRET_VALIDATION
-        if dossier.status != DossierStatus.PRET_VALIDATION:
+        # CHANGED: Allow validation from RISQUES_EN_COURS if user is SO (Direct Validation)
+        allowed_statuses = [DossierStatus.PRET_VALIDATION]
+        if is_responsible_so:
+            allowed_statuses.append(DossierStatus.RISQUES_EN_COURS)
+
+        if dossier.status not in allowed_statuses:
             return Response(
                 {
-                    'error': f'Dossier can only be validated when in PRET_VALIDATION status. Current status: {dossier.status}',
+                    'error': f'Dossier cannot be validated in current status: {dossier.status}',
                     'current_status': dossier.status
                 },
                 status=status.HTTP_400_BAD_REQUEST
@@ -723,12 +783,7 @@ class ArchitectureDocViewSet(DossierFilterMixin, viewsets.ModelViewSet):
                     logger.warning(f"IA2 analysis error for dossier {dossier_id}: {ia2_result.get('message')}")
             except Exception as e:
                 logger.error(f"Failed to trigger IA2 analysis: {str(e)}", exc_info=True)
-                ia2_result = {
-                    'secure_score': 0,
-                    'is_coherent': False,
-                    'message': f'AI analysis error: {str(e)}',
-                    'error': True
-                }
+                # We don't need to set ia2_result here as we aren't returning it
             
             # Reload dossier to get updated status after IA2 analysis
             dossier.refresh_from_db()
@@ -736,7 +791,12 @@ class ArchitectureDocViewSet(DossierFilterMixin, viewsets.ModelViewSet):
             logger.info(f"Dossier {dossier_id} status after IA2: {dossier.status}")
             
             # Auto-transition to RISQUES_EN_COURS if IA2 passed
-            if ia2_result.get('is_coherent') and dossier.status == DossierStatus.IA2_COHERENT:
+            # Note: We need to check the result from the task if we want to do this here, 
+            # but since we removed ia2_result usage below, we rely on the task or separate call.
+            # However, if we want to keep the auto-transition logic here, we need ia2_result.
+            # Re-adding ia2_result just for this logic block:
+            
+            if 'ia2_result' in locals() and ia2_result.get('is_coherent') and dossier.status == DossierStatus.IA2_COHERENT:
                 old_status = dossier.status
                 dossier.status = DossierStatus.RISQUES_EN_COURS
                 dossier.save()
@@ -756,232 +816,118 @@ class ArchitectureDocViewSet(DossierFilterMixin, viewsets.ModelViewSet):
                         'ia2_secure_score': ia2_result.get('secure_score')
                     }
                 )
-            
-            # Store IA2 result in context so response can include it
-            self.request.ia2_result = ia2_result
-        else:
-            logger.info(f"No submit documents flag for dossier {dossier_id}")
+        
+        # REMOVED: Dead code that constructed a Response object. 
+        # perform_create return value is ignored by ModelViewSet.
+        # This prevents UnboundLocalError when submit_documents_flag is False
 
-    @action(detail=True, methods=['post'])
-    def confirm(self, request, pk=None):
-        """
-        RSSI/SO confirms the architecture document
-        """
-        doc = self.get_object()
-        
-        # Only SO or Admin can confirm
-        if request.user.role not in [Role.SO, Role.ADMIN]:
-            return Response(
-                {'error': 'Only Security Officers can confirm documents'},
-                status=status.HTTP_403_FORBIDDEN
+    def perform_destroy(self, instance):
+        """Delete the file from disk when the record is deleted"""
+        # Log deletion
+        try:
+            AuditLogEntry.objects.create(
+                audit_log=instance.dossier.audit_log,
+                user=self.request.user,
+                action_type=AuditActionType.DOCUMENT_DELETED,
+                detail={
+                    'filename': instance.filename,
+                    'local_filepath': instance.local_filepath
+                }
             )
+        except Exception as e:
+            logger.warning(f"Failed to create audit log for document deletion: {e}")
         
-        doc.rssi_confirmed = True
-        doc.save()
+        # Delete file from disk
+        if instance.local_filepath and os.path.exists(instance.local_filepath):
+            try:
+                os.remove(instance.local_filepath)
+                logger.info(f"Deleted file: {instance.local_filepath}")
+            except Exception as e:
+                logger.error(f"Error deleting file {instance.local_filepath}: {e}")
         
-        # Log to audit
-        AuditLogEntry.objects.create(
-            audit_log=doc.dossier.audit_log,
-            user=request.user,
-            action_type=AuditActionType.DOCUMENT_CONFIRMED,
-            detail={'filename': doc.filename}
-        )
-        
-        return Response(
-            {'status': 'Document confirmed', 'filename': doc.filename},
-            status=status.HTTP_200_OK
-        )
-    
+        instance.delete()
+
     @action(detail=True, methods=['get'])
-    def download(self, request, pk=None):
+    def download(self, request, pk=None, dossier_id=None, dossier_pk=None):
         """
-        Download the architecture document by ID.
-        Only the dossier AM, assigned SO, and Admin can download.
-        
-        Usage: GET /api/dossiers/{dossier_id}/documents/{pk}/download/
+        Download a document by ID.
         """
         doc = self.get_object()
-        user = request.user
         
-        # Permission check
-        is_dossier_owner = doc.dossier.am == user
-        is_responsible_so = doc.dossier.responsible_so == user
-        is_admin = user.role in [Role.SO, Role.ADMIN]
-        
-        if not (is_dossier_owner or is_responsible_so or is_admin):
-            return Response(
-                {'error': 'You do not have permission to download this document'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Check if file exists on disk using local_filepath
+        # Check if file exists
         if not os.path.exists(doc.local_filepath):
-            return Response(
-                {'error': 'File not found on server'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
+            return Response({'error': 'File not found on server'}, status=status.HTTP_404_NOT_FOUND)
+            
         try:
-            # Open and serve the file
+            # Open file in binary mode
             file_handle = open(doc.local_filepath, 'rb')
             
-            # Create response with proper headers
-            response = FileResponse(
-                file_handle,
-                content_type=doc.mime_type,
-                as_attachment=True,
-                filename=doc.filename
-            )
-            
-            # Log download to audit
-            AuditLogEntry.objects.create(
-                audit_log=doc.dossier.audit_log,
-                user=user,
-                action_type=AuditActionType.DOCUMENT_UPLOADED,
-                detail={
-                    'action': 'downloaded',
-                    'filename': doc.filename,
-                    'file_size_mb': round(doc.size / (1024*1024), 2)
-                }
-            )
-            
+            # Create FileResponse
+            response = FileResponse(file_handle, content_type=doc.mime_type)
+            response['Content-Disposition'] = f'attachment; filename="{doc.filename}"'
             return response
-        
-        except IOError as e:
-            return Response(
-                {'error': f'Error reading file: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-    
-    @action(detail=False, methods=['get'])
-    def download_by_filename(self, request, dossier_id=None, filename=None):
+        except Exception as e:
+            logger.error(f"Error downloading file {doc.local_filepath}: {e}")
+            return Response({'error': 'Error reading file'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # REMOVED @action decorator to prevent router conflict with detail view (DELETE/PATCH)
+    # This view is mapped manually in urls.py
+    def download_by_filename(self, request, filename=None, dossier_id=None, dossier_pk=None):
         """
-        Download architecture document by filename directly.
-        Only the dossier AM, assigned SO, and Admin can download.
-        
-        Usage: GET /api/dossiers/{dossier_id}/documents/{filename}/
-        Example: GET /api/dossiers/1/documents/my-document.pdf/
+        Download a document by filename (used for direct links).
         """
-        user = request.user
+        # Handle different URL parameter names
+        target_dossier_id = dossier_id or dossier_pk or self.get_dossier_id_from_url()
         
-        if not dossier_id or not filename:
-            return Response(
-                {'error': 'dossier_id and filename are required'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
-        # Get the dossier
+        if not target_dossier_id:
+            return Response({'error': 'Dossier ID required'}, status=status.HTTP_400_BAD_REQUEST)
+            
         try:
-            dossier = Dossier.objects.get(id=dossier_id)
-        except Dossier.DoesNotExist:
-            return Response(
-                {'error': 'Dossier not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Permission check
-        is_dossier_owner = dossier.am == user
-        is_responsible_so = dossier.responsible_so == user
-        is_admin = user.role in [Role.SO, Role.ADMIN]
-        
-        if not (is_dossier_owner or is_responsible_so or is_admin):
-            return Response(
-                {'error': 'You do not have permission to download documents from this dossier'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Find the document by filename in this dossier
-        try:
-            doc = ArchitectureDoc.objects.get(dossier_id=dossier_id, filename=filename)
+            doc = ArchitectureDoc.objects.get(dossier_id=target_dossier_id, filename=filename)
+            
+            # Check permissions (reuse get_object logic via check_object_permissions if needed, 
+            # but here we just check if user can access this doc)
+            self.check_object_permissions(request, doc)
+            
+            if not os.path.exists(doc.local_filepath):
+                return Response({'error': 'File not found on server'}, status=status.HTTP_404_NOT_FOUND)
+                
+            file_handle = open(doc.local_filepath, 'rb')
+            response = FileResponse(file_handle, content_type=doc.mime_type)
+            response['Content-Disposition'] = f'attachment; filename="{doc.filename}"'
+            return response
+            
         except ArchitectureDoc.DoesNotExist:
-            return Response(
-                {'error': f'Document "{filename}" not found in this dossier'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Check if file exists on disk using local_filepath
-        if not os.path.exists(doc.local_filepath):
-            return Response(
-                {'error': 'File not found on server'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        try:
-            # Open and serve the file
-            file_handle = open(doc.local_filepath, 'rb')
-            
-            # Create response with proper headers
-            response = FileResponse(
-                file_handle,
-                content_type=doc.mime_type,
-                as_attachment=True,
-                filename=doc.filename
-            )
-            
-            # Log download to audit
-            AuditLogEntry.objects.create(
-                audit_log=dossier.audit_log,
-                user=user,
-                action_type=AuditActionType.DOCUMENT_UPLOADED,
-                detail={
-                    'action': 'downloaded',
-                    'filename': doc.filename,
-                    'file_size_mb': round(doc.size / (1024*1024), 2)
-                }
-            )
-            
-            return response
-        
-        except IOError as e:
-            return Response(
-                {'error': f'Error reading file: {str(e)}'},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
-    
+            return Response({'error': 'Document not found'}, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error downloading file by name {filename}: {e}")
+            return Response({'error': 'Error reading file'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
     @action(detail=False, methods=['post'])
-    def submit_documents(self, request, dossier_id=None):
+    def submit_documents(self, request, *args, **kwargs):
         """
-        Submit all architecture documents for this dossier.
-        After submission, no more documents can be uploaded.
-        Automatically triggers IA2 (cross-check) analysis.
-        
-        Usage: POST /api/dossiers/{dossier_id}/documents/submit_documents/
+        Explicit action to submit all uploaded documents and trigger IA2 analysis.
         """
-        # Get dossier_id from URL - try all possible keys
-        dossier_id = self.get_dossier_id_from_url() or dossier_id
-        
+        dossier_id = self.get_dossier_id_from_url()
         if not dossier_id:
-            return Response(
-                {'error': 'dossier_id is required in URL path'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-        
+            return Response({'error': 'Dossier ID required'}, status=status.HTTP_400_BAD_REQUEST)
+            
         try:
             dossier = Dossier.objects.get(id=dossier_id)
         except Dossier.DoesNotExist:
-            return Response(
-                {'error': 'Dossier not found'},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        # Permission check: Only AM (dossier owner) can submit documents
-        if request.user != dossier.am and not (request.user.is_superuser or request.user.role == Role.ADMIN):
-            return Response(
-                {'error': 'Only the dossier owner can submit documents'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-        
-        # Check if dossier status is correct (should be ARCHI_UPLOAD_EN_COURS)
+            return Response({'error': 'Dossier not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Validate dossier status
         if dossier.status != DossierStatus.ARCHI_UPLOAD_EN_COURS:
             return Response(
-                {'error': f'Documents can only be submitted when dossier is in ARCHI_UPLOAD_EN_COURS status, current: {dossier.status}'},
+                {'error': f"Documents can only be submitted when dossier is in ARCHI_UPLOAD_EN_COURS status, current: {dossier.status}"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Check if at least one document has been uploaded
+        # Validate at least one document exists
         if dossier.architecture_docs.count() == 0:
             return Response(
-                {'error': 'At least one architecture document must be uploaded before submission'},
+                {'error': "At least one architecture document must be uploaded before submission"},
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -989,7 +935,7 @@ class ArchitectureDocViewSet(DossierFilterMixin, viewsets.ModelViewSet):
         dossier.architecture_docs_submitted = True
         dossier.save()
         
-        # Log to audit
+        # Log document submission to audit
         AuditLogEntry.objects.create(
             audit_log=dossier.audit_log,
             user=request.user,
@@ -1002,27 +948,15 @@ class ArchitectureDocViewSet(DossierFilterMixin, viewsets.ModelViewSet):
         )
         
         # Trigger IA2 (cross-check) analysis automatically
+        ia2_result = {}
         try:
-            ia2_result = trigger_ia2_analysis(dossier.id, async_mode=False)
+            from .tasks import trigger_ia2_analysis
+            ia2_result = trigger_ia2_analysis(dossier_id, async_mode=False)
             
             if ia2_result.get('error'):
-                logger.warning(f"IA2 analysis error for dossier {dossier.id}: {ia2_result.get('message')}")
-                # Create a failure record so the user sees the error
-                IaCrossCheck.objects.create(
-                    dossier=dossier,
-                    secure_score=0,
-                    findings=f"Analysis Failed: {ia2_result.get('message')}",
-                    is_coherent=False
-                )
+                logger.warning(f"IA2 analysis error for dossier {dossier_id}: {ia2_result.get('message')}")
         except Exception as e:
             logger.error(f"Failed to trigger IA2 analysis: {str(e)}", exc_info=True)
-            # Create a failure record
-            IaCrossCheck.objects.create(
-                dossier=dossier,
-                secure_score=0,
-                findings=f"System Error during analysis: {str(e)}",
-                is_coherent=False
-            )
             ia2_result = {
                 'secure_score': 0,
                 'is_coherent': False,
@@ -1033,7 +967,7 @@ class ArchitectureDocViewSet(DossierFilterMixin, viewsets.ModelViewSet):
         # Reload dossier to get updated status after IA2 analysis
         dossier.refresh_from_db()
         
-        # NEW: Auto-transition to RISQUES_EN_COURS if IA2 passed
+        # Auto-transition to RISQUES_EN_COURS if IA2 passed
         if ia2_result.get('is_coherent') and dossier.status == DossierStatus.IA2_COHERENT:
             old_status = dossier.status
             dossier.status = DossierStatus.RISQUES_EN_COURS
@@ -1052,30 +986,13 @@ class ArchitectureDocViewSet(DossierFilterMixin, viewsets.ModelViewSet):
                     'ia2_secure_score': ia2_result.get('secure_score')
                 }
             )
-        
-        # Build response based on IA2 result
-        response_data = {
-            'status': 'Architecture documents submitted successfully',
+            
+        return Response({
+            'status': 'Documents submitted and analyzed',
             'dossier_id': dossier.id,
-            'total_documents': dossier.architecture_docs.count(),
-            'ia2_analysis': {
-                'secure_score': ia2_result.get('secure_score'),
-                'is_coherent': ia2_result.get('is_coherent'),
-                'message': ia2_result.get('message')
-            },
-            'dossier_status': dossier.status,
-        }
-        
-        # Add guidance based on result
-        if ia2_result.get('is_coherent'):
-            response_data['next_step'] = 'Proceed to risk register creation'
-            response_data['message'] = f'Dossier submitted and approved! Secure score: {ia2_result.get("secure_score")}/100. Ready for risk register creation.'
-        else:
-            response_data['next_step'] = 'Please review and improve your documents based on the analysis'
-            response_data['message'] = f'Dossier needs revision. Secure score: {ia2_result.get("secure_score")}/100 (minimum required: 15)'
-            response_data['ia2_analysis']['view_details'] = f'/api/dossiers/{dossier.id}/ia2/'
-
-        return Response(response_data, status=status.HTTP_200_OK)
+            'ia2_analysis': ia2_result,
+            'dossier_status': dossier.status
+        })
 
 # ============================================================================
 # 4. ENHANCED RiskRegisterViewSet (Now writable for SO)
@@ -1104,8 +1021,10 @@ class RiskRegisterViewSet(DossierFilterMixin, viewsets.ModelViewSet):
             queryset = RiskRegister.objects.filter(dossier__responsible_so=user)
         else:
             # AM can see risk registers for their own dossiers OR dossiers with delegated items
+            # CHANGED: AM cannot see DRAFT registers (work in progress by SO)
             queryset = RiskRegister.objects.filter(
-                Q(dossier__am=user) | Q(items__delegated_to=user)
+                (Q(dossier__am=user) | Q(items__delegated_to=user)) & 
+                ~Q(status=RiskStatus.DRAFT)
             ).distinct()
         
         # Filter by dossier_id if provided in nested URL
@@ -1204,7 +1123,7 @@ class RiskRegisterViewSet(DossierFilterMixin, viewsets.ModelViewSet):
             )
     
     @action(detail=True, methods=['post'])
-    def submit(self, request, pk=None, dossier_id=None):
+    def submit(self, request, pk=None, **kwargs):
         """
         Submit risk register for review (legacy action - use PATCH instead)
         Only SO can submit, status must be DRAFT
@@ -1275,6 +1194,10 @@ class RiskItemViewSet(viewsets.ModelViewSet):
             from .serializers import ContestedRiskActionSerializer
             return ContestedRiskActionSerializer
         
+        # NEW: SO reviewing contestation
+        if getattr(self, 'action', None) == 'review_contest':
+            return SoContestReviewSerializer
+        
         # Delegation recipient viewing list: show delegation action form
         if getattr(self, 'action', None) == 'list':
             user = self.request.user
@@ -1307,6 +1230,11 @@ class RiskItemViewSet(viewsets.ModelViewSet):
             from .serializers import ContestedRiskActionSerializer
             kwargs.setdefault('context', self.get_serializer_context())
             return ContestedRiskActionSerializer(*args, **kwargs)
+        
+        # NEW: SO reviewing contestation
+        if getattr(self, 'action', None) == 'review_contest':
+            kwargs.setdefault('context', self.get_serializer_context())
+            return SoContestReviewSerializer(*args, **kwargs)
         
         if getattr(self, 'action', None) == 'create' and self.request.user.role == Role.AM:
             kwargs.setdefault('context', self.get_serializer_context())
@@ -1348,6 +1276,11 @@ class RiskItemViewSet(viewsets.ModelViewSet):
                 return RiskItem.objects.none()
         else:
             # AM: Check if owner or delegation recipient
+            
+            # CHANGED: AM cannot see items if register is DRAFT
+            if register.status == RiskStatus.DRAFT:
+                return RiskItem.objects.none()
+
             if register.dossier.am == user:
                 # Dossier owner: see all items in their register
                 pass
@@ -1377,7 +1310,11 @@ class RiskItemViewSet(viewsets.ModelViewSet):
             raise serializers.ValidationError("You can only create risk items for dossiers you are responsible for")
         
         # Create the risk item
-        risk_item = serializer.save(register=register)
+        # FIX: Set owner_user to the dossier's AM (who owns the risk)
+        risk_item = serializer.save(
+            register=register,
+            owner_user=register.dossier.am
+        )
         
         # Log to audit
         AuditLogEntry.objects.create(
@@ -1414,7 +1351,7 @@ class RiskItemViewSet(viewsets.ModelViewSet):
         )
     
     @action(detail=True, methods=['post'])
-    def contested(self, request, pk=None):
+    def contested(self, request, pk=None, **kwargs):
         """
         AM contests a risk item decision (accept/refuse)
         """
@@ -1719,6 +1656,65 @@ class RiskItemViewSet(viewsets.ModelViewSet):
                 'risk_title': risk.title
             }, status=status.HTTP_200_OK)
 
+    @action(detail=True, methods=['post'])
+    def review_contest(self, request, pk=None, **kwargs):
+        """
+        SO reviews a contested risk item.
+        - Accept: Risk is INVALIDATED (removed from active risks).
+        - Refuse: Risk returns to PENDING for AM, contestation is marked refused.
+        """
+        item = self.get_object()
+        register = item.register
+        
+        # Only SO responsible for dossier can review
+        if request.user.role != Role.SO or register.dossier.responsible_so != request.user:
+            return Response(
+                {'error': 'Only the responsible Security Officer can review contestations'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+            
+        if item.status != RiskItemStatus.CONTESTED:
+            return Response(
+                {'error': 'Item is not in CONTESTED status'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+            
+        serializer = SoContestReviewSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        action = serializer.validated_data['action']
+        
+        if action == SoContestReviewSerializer.ACCEPT:
+            # SO accepts the contestation -> Risk is Invalidated
+            item.status = RiskItemStatus.INVALIDATED
+            item.save()
+            
+            # Update register status (Invalidated counts as resolved)
+            self._update_register_status(register)
+            
+            AuditLogEntry.objects.create(
+                audit_log=register.dossier.audit_log,
+                user=request.user,
+                action_type=AuditActionType.RISK_ITEM_UPDATED,
+                detail={'risk_title': item.title, 'action': 'contest_accepted_invalidated'}
+            )
+            
+            return Response({'status': 'Contestation accepted. Risk invalidated.'})
+            
+        else: # REFUSE
+            # SO refuses the contestation -> Back to AM
+            item.status = RiskItemStatus.PENDING
+            item.contest_refused = True # Flag to prevent re-contesting
+            item.save()
+            
+            AuditLogEntry.objects.create(
+                audit_log=register.dossier.audit_log,
+                user=request.user,
+                action_type=AuditActionType.RISK_ITEM_UPDATED,
+                detail={'risk_title': item.title, 'action': 'contest_refused'}
+            )
+            
+            return Response({'status': 'Contestation refused. Returned to AM.'})
+
     def get_serializer_context(self):
         context = super().get_serializer_context()
         register_id = self.kwargs.get('register_id')
@@ -1735,7 +1731,8 @@ class RiskItemViewSet(viewsets.ModelViewSet):
         - If all items are accepted: ACCEPTED (also updates dossier to PRET_VALIDATION)
         """
         total_items = register.items.count()
-        accepted_items = register.items.filter(status=RiskItemStatus.ACCEPTED).count()
+        # CHANGED: Count INVALIDATED items as accepted/resolved
+        accepted_items = register.items.filter(status__in=[RiskItemStatus.ACCEPTED, RiskItemStatus.INVALIDATED]).count()
         
         old_status = register.status
         
@@ -1762,7 +1759,7 @@ class RiskItemViewSet(viewsets.ModelViewSet):
                     'entity': 'RiskRegister',
                     'old_status': old_status,
                     'new_status': new_status,
-                    'reason': f'{accepted_items}/{total_items} items accepted'
+                    'reason': f'{accepted_items}/{total_items} items resolved'
                 }
             )
             
@@ -1782,7 +1779,7 @@ class RiskItemViewSet(viewsets.ModelViewSet):
                         'entity': 'Dossier',
                         'old_status': old_dossier_status,
                         'new_status': DossierStatus.PRET_VALIDATION,
-                        'reason': 'All risk items accepted, ready for validation'
+                        'reason': 'All risk items resolved, ready for validation'
                     }
                 )
     
@@ -1930,7 +1927,8 @@ class QuestionnaireTemplateViewSet(viewsets.ModelViewSet):
         return QuestionnaireTemplateSerializer
     
     def get_permissions(self):
-        if self.action in ['list', 'retrieve', 'available']:
+        # FIX: Added 'with_questions' to the list of actions allowed for all authenticated users
+        if self.action in ['list', 'retrieve', 'available', 'with_questions']:
             # Everyone can view published templates
             permission_classes = [permissions.IsAuthenticated]
         else:
@@ -2091,11 +2089,11 @@ class QuestionnaireAnswerViewSet(DossierFilterMixin, viewsets.ModelViewSet):
             question_id = serializer.validated_data.get('question').id
             answer_value = serializer.validated_data.get('answer_value', '')
             
-            # IMPORTANT: Validate that the question belongs to this dossier's template
+            # IMPORTANT: Validate that the question belongs to dossier's template
             question = Question.objects.get(id=question_id)
             if question.template != dossier.questionnaire_template:
                 raise serializers.ValidationError(
-                    f"Question {question_id} does not belong to the assigned questionnaire template."
+                                       f"Question {question_id} does not belong to the assigned questionnaire template."
                 )
             
             _, created = QuestionnaireAnswer.objects.update_or_create(
@@ -2166,6 +2164,74 @@ class QuestionnaireAnswerViewSet(DossierFilterMixin, viewsets.ModelViewSet):
             )
         
         instance.delete()
+
+    @action(detail=False, methods=['post'])
+    def bulk_answer(self, request, dossier_id=None, dossier_pk=None):
+        """
+        Bulk create or update answers for a specific dossier.
+        """
+        # Handle different URL parameter names from nested routers vs manual paths
+        target_dossier_id = dossier_id or dossier_pk
+        
+        # Get dossier_id from URL kwargs if not passed as argument
+        if not target_dossier_id:
+            target_dossier_id = self.kwargs.get('dossier_id') or self.kwargs.get('dossier_pk')
+            
+        # If still not found, check request data
+        if not target_dossier_id:
+            target_dossier_id = request.data.get('dossier_id')
+
+        if not target_dossier_id:
+             return Response({'error': 'Dossier ID is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            dossier = Dossier.objects.get(id=target_dossier_id)
+        except Dossier.DoesNotExist:
+            return Response({'error': 'Dossier not found'}, status=status.HTTP_404_NOT_FOUND)
+
+        # Permission checks
+        if request.user.role == Role.SO:
+             return Response(
+                 {'error': "Security Officers cannot answer questions."}, 
+                 status=status.HTTP_403_FORBIDDEN
+             )
+        
+        if dossier.am != request.user and not (request.user.is_superuser or request.user.role == Role.ADMIN):
+             return Response(
+                 {'error': "You can only answer questions for your own dossiers."}, 
+                 status=status.HTTP_403_FORBIDDEN
+             )
+             
+        if dossier.status != DossierStatus.EN_EDITION:
+            return Response(
+                {'error': f"Cannot modify answers when dossier is in {dossier.status} status."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Prepare data
+        data = request.data.copy()
+        data['dossier_id'] = target_dossier_id
+
+        # Initialize serializer with context to allow question filtering
+        serializer = BulkQuestionnaireAnswerSerializer(data=data, context={'dossier': dossier})
+        
+        if serializer.is_valid():
+            serializer.save()
+            
+            # Log the bulk update
+            AuditLogEntry.objects.create(
+                audit_log=dossier.audit_log,
+                user=request.user,
+                action_type=AuditActionType.QUESTIONNAIRE_SAVED,
+                detail={
+                    'action': 'bulk_update',
+                    'count': len(data.get('answers', []))
+                }
+            )
+            
+            return Response({'status': 'Answers saved successfully'}, status=status.HTTP_200_OK)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
     def _validate_bulk_answer_permissions(self, dossier, user):
         """Check if user has permission to answer questions for this dossier"""

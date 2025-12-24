@@ -63,10 +63,9 @@ def trigger_ia1_analysis(dossier_id, async_mode=False):
         if not created:
             ia_check.status = 'COHERENT' if result.is_coherent else 'INCOHERENT'
             ia_check.secure_score = result.secure_score
-            ia_check.findings = {
-                'analysis': result.analysis_text,
-                'raw_response': result.raw_response
-            }
+            # IMPORTANT: Save the structured findings dictionary, not just the text
+            ia_check.findings = result.findings 
+            ia_check.raw_response = result.raw_response
             ia_check.save()
         
         # Update dossier status based on IA1 result

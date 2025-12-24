@@ -272,6 +272,19 @@ class ArchitectureDoc(models.Model):
     )
     filename = models.CharField(max_length=255)
     
+    # NEW: User-friendly name and description
+    display_name = models.CharField(
+        max_length=255, 
+        blank=True, 
+        default='', # Added default to facilitate migration
+        verbose_name=_("Nom affiché")
+    )
+    description = models.TextField(
+        blank=True, 
+        default='', # Added default to facilitate migration
+        verbose_name=_("Description")
+    )
+    
     # CHANGED: Renamed s3_key to local_filepath
     local_filepath = models.CharField(
         max_length=255,
@@ -359,9 +372,9 @@ class Likelihood(models.TextChoices):
 # Basé sur [cite: 186]
 class Impact(models.TextChoices):
     MINOR = 'MINOR', _('Mineur')
-    MODERATE = 'MODERATE', _('Modéré')
-    MAJOR = 'MAJOR', _('Majeur')
-    SEVERE = 'SEVERE', _('Sévère')
+    MODERATE = 'MODERATE', _('Moyen')
+    MAJOR = 'MAJOR', _('Élevé')
+    SEVERE = 'SEVERE', _('Critique')
     CATASTROPHIC = 'CATASTROPHIC', _('Catastrophique')
 
 # Basé sur [cite: 184]
@@ -384,6 +397,7 @@ class RiskItemStatus(models.TextChoices):
     ACCEPTED = 'ACCEPTED', _('Accepté')
     CONTESTED = 'CONTESTED', _('Contesté')
     REFUSED = 'REFUSED', _('Refusé')
+    INVALIDATED = 'INVALIDATED', _('Invalidé (Contestation acceptée)') # NEW
 
 # --- Registre de Risques (RiskRegister) ---
 class RiskRegister(models.Model):
@@ -417,7 +431,8 @@ class RiskRegister(models.Model):
     
     @property
     def accepted_items(self):
-        return self.items.filter(status=RiskItemStatus.ACCEPTED).count()
+        # CHANGED: Include INVALIDATED items as they are considered "resolved"
+        return self.items.filter(status__in=[RiskItemStatus.ACCEPTED, RiskItemStatus.INVALIDATED]).count()
 
 # --- Item de Risque Individuel (RiskItem) ---
 class RiskItem(models.Model):
@@ -485,6 +500,14 @@ class RiskItem(models.Model):
     )
     contested_at = models.DateTimeField(null=True, blank=True)
     contestation_reason = models.TextField(blank=True, verbose_name=_("Raison de la contestation"))
+    
+    # NEW: Track if contestation was refused by SO
+    # NOTE: If you see "no such column" error, run: python manage.py makemigrations && python manage.py migrate
+    contest_refused = models.BooleanField(
+        default=False,
+        verbose_name=_("Contestation refusée"),
+        help_text=_("True if SO refused the contestation. Prevents further contestation.")
+    )
     
     # NEW: Refusal tracking (to prevent re-delegation to same user)
     refused_by = models.JSONField(

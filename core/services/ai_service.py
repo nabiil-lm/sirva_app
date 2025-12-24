@@ -4,6 +4,7 @@ Handles IA1 (questionnaire coherence) analysis.
 """
 import os
 import re
+import json
 import logging
 from dataclasses import dataclass
 from typing import Optional, List, Dict, Any
@@ -19,6 +20,7 @@ class IA1AnalysisResult:
     """Result of IA1 analysis"""
     secure_score: int
     analysis_text: str
+    findings: Dict[str, Any]  # Changed from just text to structured findings
     is_coherent: bool
     raw_response: str
     error: Optional[str] = None
@@ -27,8 +29,26 @@ class IA1AnalysisResult:
 class GeminiAIService:
     """Service for interacting with Google Gemini AI API"""
     
-    # IA1 Prompt (French - cybersecurity auditor)
-    IA1_PROMPT = """Tu es un auditeur cybersécurité. Analyse la cohérence interne des réponses à un questionnaire sécurité d'entreprise. Repère contradictions, omissions manifestes et réponses invraisemblables. Ne juge pas la conformité réglementaire, seulement la cohérence logique, et inclus au tout début de ta réponse, selon le résultat de ton analyse, la phrase "Secure Score: X", où X est un score de sécurité allant de 0 à 100."""
+    # IA1 Prompt - Updated to request JSON structure
+    IA1_PROMPT = """Tu es un auditeur cybersécurité expert. Analyse la cohérence interne des réponses à ce questionnaire de sécurité.
+    
+    Ta mission :
+    1. Repérer les contradictions flagrantes entre les réponses.
+    2. Identifier les omissions ou réponses trop vagues.
+    3. Évaluer la vraisemblance des mesures techniques déclarées.
+    
+    Format de réponse OBLIGATOIRE :
+    Tu dois répondre UNIQUEMENT avec un objet JSON valide respectant cette structure exacte (sans markdown ```json) :
+    {
+        "secure_score": <entier entre 0 et 100>,
+        "summary": "<Résumé global de l'analyse en 2-3 phrases>",
+        "strengths": ["<Point fort 1>", "<Point fort 2>", ...],
+        "weaknesses": ["<Point faible/incohérence 1>", "<Point faible 2>", ...],
+        "recommendations": ["<Recommandation 1>", "<Recommandation 2>", ...]
+    }
+    
+    Le "secure_score" doit refléter la COHÉRENCE et la SÉRIEUX des réponses, pas nécessairement le niveau de sécurité absolu.
+    """
     
     def __init__(self):
         """Initialize the Gemini AI service with API key from environment"""
@@ -74,20 +94,10 @@ class GeminiAIService:
     def _configure_genai(self):
         """Configure the Gemini AI client"""
         genai.configure(api_key=self.api_key)
-        # Use gemini-pro for Gemini Pro API access
-        # Alternative: gemini-1.5-flash (if available), gemini-1.5-pro (if available)
-        self.model = genai.GenerativeModel('gemini-2.5-flash')
+        self.model = genai.GenerativeModel('gemini-2.5-flash') # Updated to latest available or fallback
     
     def _format_questionnaire_for_analysis(self, answers: List[Dict[str, Any]]) -> str:
-        """
-        Format questionnaire answers into a structured text for AI analysis.
-        
-        Args:
-            answers: List of dicts with 'question', 'answer', 'question_type', 'is_mandatory'
-        
-        Returns:
-            Formatted string representation of the questionnaire
-        """
+        """Format questionnaire answers into a structured text for AI analysis."""
         if not answers:
             return "Aucune réponse fournie."
         
@@ -107,20 +117,56 @@ class GeminiAIService:
         
         return "\n".join(formatted_lines)
     
+    def _parse_json_response(self, response_text: str) -> Dict[str, Any]:
+        """
+        Parse the JSON response from Gemini, handling potential markdown formatting.
+        """
+        try:
+            # Remove markdown code blocks if present
+            clean_text = re.sub(r'```json\s*', '', response_text)
+            clean_text = re.sub(r'```\s*$', '', clean_text)
+            clean_text = clean_text.strip()
+            
+            # Attempt to find JSON object if there's extra text around it
+            if not clean_text.startswith('{'):
+                json_match = re.search(r'(\{.*\})', clean_text, re.DOTALL)
+                if json_match:
+                    clean_text = json_match.group(1)
+            
+            data = json.loads(clean_text)
+            
+            # Normalize keys (ensure 'summary' exists)
+            if 'summary' not in data:
+                # Look for alternatives
+                for key in ['overview', 'description', 'analysis', 'conclusion', 'resume', 'synthese']:
+                    if key in data and isinstance(data[key], str):
+                        data['summary'] = data[key]
+                        break
+            
+            # If still no summary, use a default message
+            if 'summary' not in data:
+                 data['summary'] = "Analyse effectuée. Veuillez consulter les points forts et faibles ci-dessous."
+
+            return data
+        except json.JSONDecodeError as e:
+            logger.error(f"Failed to parse JSON from AI response: {e}")
+            logger.debug(f"Raw response: {response_text}")
+            
+            # Fallback: try to extract score manually and put text in summary
+            score = self._extract_secure_score(response_text)
+            return {
+                "secure_score": score,
+                "summary": response_text, # Use full text as summary on parse error
+                "strengths": [],
+                "weaknesses": [],
+                "recommendations": []
+            }
+
     def _extract_secure_score(self, response_text: str) -> int:
-        """
-        Extract the secure score from Gemini's response.
-        
-        Args:
-            response_text: The raw response from Gemini
-        
-        Returns:
-            Integer score between 0-100, or 0 if not found
-        """
-        # Pattern to match "Secure Score: X" or variations
+        """Legacy extraction method for fallback"""
         patterns = [
+            r'"secure_score"\s*:\s*(\d+)',
             r'[Ss]ecure\s*[Ss]core\s*:\s*(\d+)',
-            r'[Ss]core\s*de\s*sécurité\s*:\s*(\d+)',
             r'[Ss]core\s*:\s*(\d+)',
         ]
         
@@ -128,21 +174,12 @@ class GeminiAIService:
             match = re.search(pattern, response_text)
             if match:
                 score = int(match.group(1))
-                # Clamp to 0-100 range
                 return max(0, min(100, score))
-        
-        logger.warning("Could not extract secure score from response, defaulting to 0")
         return 0
     
     def analyze_questionnaire(self, answers: List[Dict[str, Any]]) -> IA1AnalysisResult:
         """
         Perform IA1 analysis on questionnaire answers.
-        
-        Args:
-            answers: List of answer dictionaries with question/answer pairs
-        
-        Returns:
-            IA1AnalysisResult with score, analysis text, and coherence status
         """
         try:
             # Format questionnaire for analysis
@@ -155,12 +192,13 @@ class GeminiAIService:
             
             # Call Gemini API
             response = self.model.generate_content(full_prompt)
-            
-            # Extract response text
             raw_response = response.text
             
-            # Extract secure score
-            secure_score = self._extract_secure_score(raw_response)
+            # Parse JSON response
+            findings = self._parse_json_response(raw_response)
+            
+            # Extract score from parsed JSON
+            secure_score = findings.get('secure_score', 0)
             
             # Determine if coherent based on threshold
             is_coherent = secure_score >= self.threshold
@@ -169,7 +207,8 @@ class GeminiAIService:
             
             return IA1AnalysisResult(
                 secure_score=secure_score,
-                analysis_text=raw_response,
+                analysis_text=findings.get('summary', raw_response),
+                findings=findings, # Pass the full structured object
                 is_coherent=is_coherent,
                 raw_response=raw_response,
                 error=None
@@ -180,6 +219,7 @@ class GeminiAIService:
             return IA1AnalysisResult(
                 secure_score=0,
                 analysis_text=f"Erreur lors de l'analyse: {str(e)}",
+                findings={"summary": f"Erreur système: {str(e)}"},
                 is_coherent=False,
                 raw_response="",
                 error=str(e)
@@ -193,12 +233,6 @@ class GeminiAIService:
 def run_ia1_analysis(dossier_id: int) -> IA1AnalysisResult:
     """
     Convenience function to run IA1 analysis for a dossier.
-    
-    Args:
-        dossier_id: The ID of the dossier to analyze
-    
-    Returns:
-        IA1AnalysisResult with analysis results
     """
     from core.models import Dossier, QuestionnaireAnswer
     
@@ -208,6 +242,7 @@ def run_ia1_analysis(dossier_id: int) -> IA1AnalysisResult:
         return IA1AnalysisResult(
             secure_score=0,
             analysis_text="Dossier not found",
+            findings={"summary": "Dossier introuvable"},
             is_coherent=False,
             raw_response="",
             error=f"Dossier {dossier_id} not found"

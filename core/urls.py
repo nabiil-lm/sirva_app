@@ -104,11 +104,6 @@ urlpatterns = [
          ArchitectureDocViewSet.as_view({'get': 'download_by_filename'}), 
          name='dossier-documents-download-by-filename'),
     
-    # NEW: Submit documents endpoint
-    path('api/dossiers/<int:dossier_id>/documents/submit_documents/', 
-         ArchitectureDocViewSet.as_view({'post': 'submit_documents'}), 
-         name='dossier-documents-submit'),
-
     # ========== RISK REGISTER ENDPOINTS ==========
     # Risk register submit action
     path('api/dossiers/<int:dossier_id>/risk-register/<int:pk>/submit/', 
@@ -118,7 +113,7 @@ urlpatterns = [
     # ========== RISK ITEM ENDPOINTS ==========
     # Risk item actions: contest, contested (SO manages), delegation_action
     path('api/dossiers/<int:dossier_id>/risk-register/<int:register_id>/items/<int:pk>/contest/', 
-         RiskItemViewSet.as_view({'post': 'contest'}), 
+         RiskItemViewSet.as_view({'post': 'contested'}), 
          name='risk-item-contest'),
     path('api/dossiers/<int:dossier_id>/risk-register/<int:register_id>/items/contested/', 
          RiskItemViewSet.as_view({'get': 'contested', 'post': 'contested'}), 
@@ -157,7 +152,7 @@ urlpatterns += [
     ),
     path(
         'api/dossiers/<int:dossier_id>/risk-register/<int:register_id>/items/<int:pk>/contest/',
-        RiskItemViewSet.as_view({'post': 'contest'}),
+        RiskItemViewSet.as_view({'post': 'contested'}),
         name='risk-item-contest'
     ),
     path(
@@ -169,5 +164,11 @@ urlpatterns += [
         'api/dossiers/<int:dossier_id>/risk-register/<int:register_id>/items/delegation-action/',
         RiskItemViewSet.as_view({'post': 'delegation_action'}),
         name='risk-item-delegation-action'
+    ),
+    # NEW: Add review_contest endpoint
+    path(
+        'api/dossiers/<int:dossier_id>/risk-register/<int:register_id>/items/<int:pk>/review_contest/',
+        RiskItemViewSet.as_view({'post': 'review_contest'}),
+        name='risk-item-review-contest'
     ),
 ]

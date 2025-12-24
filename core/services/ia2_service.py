@@ -5,6 +5,8 @@ Compares questionnaire answers with architecture documents using Gemini AI
 import logging
 import os
 import time
+import json
+import re
 import subprocess
 from django.conf import settings
 import google.generativeai as genai
@@ -13,11 +15,8 @@ from ..models import Dossier, QuestionnaireAnswer, ArchitectureDoc
 
 logger = logging.getLogger(__name__)
 
-# REMOVED: Top-level configuration that was causing the issue
-# genai.configure(api_key=os.environ.get('GEMINI_API_KEY'))
-
-# French prompt for security audit
-IA2_AUDIT_PROMPT = """Tu es un auditeur cybersécurité. Compare ce questionnaire de sécurité (ci-dessus) avec les documents d'architecture technique fournis.
+# French prompt for security audit - Updated for JSON output
+IA2_AUDIT_PROMPT = """Tu es un auditeur cybersécurité expert. Compare ce questionnaire de sécurité (ci-dessus) avec les documents d'architecture technique fournis.
 
 Tâche :
 1. Analyse les documents d'architecture fournis.
@@ -25,9 +24,17 @@ Tâche :
 3. Signale toute incohérence majeure (ex: chiffrement annoncé mais absent, zones DMZ manquantes, flux non couverts).
 4. Si l'architecture supporte les réponses, confirme la cohérence.
 
-Format de réponse :
-Commence OBLIGATOIREMENT par la phrase "Secure Score: X" (X = 0-100).
-Ensuite, liste les points d'incohérence ou de validation.
+Format de réponse OBLIGATOIRE :
+Tu dois répondre UNIQUEMENT avec un objet JSON valide respectant cette structure exacte (sans markdown ```json) :
+{
+    "secure_score": <entier entre 0 et 100>,
+    "summary": "<Résumé global de l'analyse croisée en 2-3 phrases>",
+    "strengths": ["<Point fort / Cohérence validée 1>", ...],
+    "weaknesses": ["<Incohérence / Manque identifié 1>", ...],
+    "recommendations": ["<Recommandation 1>", ...]
+}
+
+Le "secure_score" doit refléter la COHÉRENCE entre les déclarations (questionnaire) et les preuves (documents).
 """
 
 def _configure_genai():
@@ -110,6 +117,21 @@ def prepare_questionnaire_text(dossier_id):
         logger.error(f"Error preparing questionnaire text: {str(e)}")
         return ""
 
+def _parse_json_response(response_text):
+    """Parse JSON response with fallback"""
+    try:
+        # Clean markdown
+        clean_text = re.sub(r'```json\s*|\s*```', '', response_text).strip()
+        # Find JSON object
+        json_match = re.search(r'(\{[\s\S]*\})', clean_text)
+        if json_match:
+            clean_text = json_match.group(1)
+            
+        return json.loads(clean_text)
+    except Exception as e:
+        logger.error(f"JSON Parse Error: {e}")
+        return None
+
 def run_ia2_analysis(dossier_id):
     """
     Run IA2 analysis using Gemini AI with File API, Compression, and Retry Logic
@@ -190,8 +212,17 @@ def run_ia2_analysis(dossier_id):
             return {'error': True, 'analysis_text': 'API request failed after retries', 'secure_score': 0, 'is_coherent': False}
 
         # 5. Process Response
-        analysis_text = response.text
-        secure_score = extract_secure_score(analysis_text)
+        raw_response = response.text
+        findings = _parse_json_response(raw_response)
+        
+        if findings:
+            secure_score = findings.get('secure_score', 0)
+            analysis_text = findings.get('summary', raw_response)
+        else:
+            secure_score = extract_secure_score(raw_response)
+            analysis_text = raw_response
+            findings = {'summary': raw_response}
+
         is_coherent = secure_score >= 50
         
         logger.info(f"IA2 Success: Score={secure_score}")
@@ -200,7 +231,8 @@ def run_ia2_analysis(dossier_id):
             'secure_score': secure_score,
             'is_coherent': is_coherent,
             'analysis_text': analysis_text,
-            'raw_response': analysis_text,
+            'findings': findings, # Return structured findings
+            'raw_response': raw_response,
             'error': False
         }
 
