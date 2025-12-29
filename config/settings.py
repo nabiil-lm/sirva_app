@@ -128,20 +128,8 @@ DATABASES = {
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
+# CLEARED FOR DEVELOPMENT: Allow simple passwords
+AUTH_PASSWORD_VALIDATORS = []
 
 # Configuration Djoser
 DJOSER = {
@@ -153,7 +141,7 @@ DJOSER = {
     # Utiliser les sérialiseurs de base de djoser pour la connexion
     'SERIALIZERS': {
         'user': 'core.serializers.UserSerializer', 
-        'user_create': 'djoser.serializers.UserCreateSerializer',
+        'user_create': 'core.serializers.UserCreateSerializer', # CHANGED: Use custom serializer
         'current_user': 'core.serializers.UserSerializer',
     }
 }

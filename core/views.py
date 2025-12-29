@@ -2267,7 +2267,8 @@ class LoginView(APIView):
         if serializer.is_valid():
             user = serializer.validated_data['user']
             token, created = Token.objects.get_or_create(user=user)
-            user_serializer = UserSerializer(user)
+            # CHANGED: Pass request context to serializer to ensure absolute URLs for ImageFields
+            user_serializer = UserSerializer(user, context={'request': request})
             
             return Response({
                 'token': token.key,

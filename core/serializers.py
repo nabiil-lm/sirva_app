@@ -6,19 +6,26 @@ from .models import (
     ArchitectureDoc, RiskRegister, RiskItem, IaCheck, IaCrossCheck,
     AuditLog, AuditLogEntry, Role, DossierStatus, RiskStatus, RiskItemStatus
 )
+from djoser.serializers import UserCreateSerializer as BaseUserCreateSerializer
+from djoser.serializers import UserSerializer as BaseUserSerializer
+from django.utils.translation import gettext_lazy as _
 
 User = get_user_model()
 
-class UserSerializer(serializers.ModelSerializer):
-    role_display = serializers.CharField(source='get_role_display', read_only=True)
-    
-    class Meta:
+class UserCreateSerializer(BaseUserCreateSerializer):
+    class Meta(BaseUserCreateSerializer.Meta):
         model = User
-        fields = ('id', 'email', 'first_name', 'last_name', 'role', 'role_display')
+        fields = ('id', 'email', 'password', 'first_name', 'last_name', 'role')
+
+class UserSerializer(BaseUserSerializer):
+    class Meta(BaseUserSerializer.Meta):
+        model = User
+        fields = ('id', 'email', 'first_name', 'last_name', 'role', 'avatar', 'preferences')
+        read_only_fields = ['id', 'email', 'role']
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
-    password = serializers.CharField(style={'input_type': 'password'}, trim_whitespace=False)
+    password = serializers.CharField()
 
     def validate(self, attrs):
         email = attrs.get('email')
@@ -27,10 +34,10 @@ class LoginSerializer(serializers.Serializer):
         if email and password:
             user = authenticate(request=self.context.get('request'), email=email, password=password)
             if not user:
-                msg = 'Unable to log in with provided credentials.'
+                msg = _('Unable to log in with provided credentials.')
                 raise serializers.ValidationError(msg, code='authorization')
         else:
-            msg = 'Must include "email" and "password".'
+            msg = _('Must include "email" and "password".')
             raise serializers.ValidationError(msg, code='authorization')
 
         attrs['user'] = user

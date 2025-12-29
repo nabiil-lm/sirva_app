@@ -37,3 +37,42 @@ minio_data/
 /media/
 /static/
 *.log
+
+# IDE & OS
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# Django
+*.log
+/staticfiles/
+/media/
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+secrets/
+private_keys/
+
+# Database & Data
+db.sqlite3
+postgres_data/
+minio_data/
+*.backup
+*.sql
+
+# API & Credentials
+api_keys.json
+credentials.json

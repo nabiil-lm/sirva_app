@@ -49,6 +49,11 @@ class User(AbstractUser):
     )
     # L'email est utilisé comme identifiant unique
     email = models.EmailField(_("Adresse e-mail"), unique=True)
+    
+    # NEW FIELDS
+    avatar = models.ImageField(upload_to='avatars/', null=True, blank=True, verbose_name=_("Avatar"))
+    preferences = models.JSONField(default=dict, blank=True, verbose_name=_("Préférences"))
+
     username = None # Supprime le champ username par défaut
     
     USERNAME_FIELD = 'email'
