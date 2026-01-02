@@ -18,7 +18,7 @@ jobs:
           port: 22
           script: |
             # 1. Se rendre dans le dossier
-            cd /home/antonio/sirva_app
+            cd /home/Antonio/sirva_app
             
             git pull
             
