@@ -1,0 +1,31 @@
+name: Création de Dossier Basique
+
+# Déclencheurs :
+# - workflow_dispatch : permet de lancer le workflow manuellement depuis l'onglet Actions
+# - push : se lance à chaque push sur la branche main (optionnel)
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "workflowtest" ]
+
+jobs:
+  creation-job:
+    runs-on: ubuntu-latest # Utilise une machine virtuelle Linux standard
+
+    steps:
+      # Étape 1 : (Optionnel) Récupère le code de votre dépôt
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      # Étape 2 : Création du dossier et d'un fichier à l'intérieur
+      - name: Créer le dossier et un fichier
+        run: |
+          echo "Création du dossier en cours..."
+          mkdir -p mon_nouveau_dossier
+          echo "Ceci est un fichier test" > mon_nouveau_dossier/readme.txt
+
+      # Étape 3 : Vérification (liste le contenu pour prouver que le dossier existe)
+      - name: Vérifier le contenu
+        run: |
+          ls -l
+          ls -l mon_nouveau_dossier/
