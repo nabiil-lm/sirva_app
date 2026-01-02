@@ -19,7 +19,7 @@ jobs:
           script: |
             # 1. Se rendre dans le dossier
             cd /home/Antonio/sirva_app
-            
+            fuser -k 8080/tcp
             git pull
             
             # 2. Activer l'environnement virtuel
