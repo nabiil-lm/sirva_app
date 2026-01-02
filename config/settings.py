@@ -42,6 +42,11 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'rest_framework',
+    'corsheaders',
+    # 🚨 NOUVELLES APPLICATIONS D'AUTHENTIFICATION 🚨
+    'djoser',
+    'rest_framework_simplejwt',
     'core',
 ]
 
@@ -56,6 +61,27 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+# 🚨 CONFIGURATION SPÉCIFIQUE À DRF 🚨
+REST_FRAMEWORK = {
+    # Nous utiliserons l'authentification par session pour l'Admin, mais JWT pour l'API
+    'DEFAULT_AUTHENTICATION_CLASSES': (
+        'rest_framework.authentication.SessionAuthentication',
+        # Nous allons ajouter l'authentification JWT ici plus tard
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+    ),
+    'DEFAULT_PERMISSION_CLASSES': (
+        'rest_framework.permissions.IsAuthenticated',
+    ),
+    # Utiliser JSON pour le rendu par défaut
+    'DEFAULT_RENDERER_CLASSES': (
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    )
+}
+
+# 🚨 CONFIGURATION POUR CORS (Même si c'est un monolithe, c'est utile) 🚨
+CORS_ALLOW_ALL_ORIGINS = True # À changer pour des domaines spécifiques en production
 
 ROOT_URLCONF = 'config.urls'
 
@@ -110,6 +136,21 @@ AUTH_PASSWORD_VALIDATORS = [
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
+
+# Configuration Djoser
+DJOSER = {
+    'USER_ID_FIELD': 'id',
+    'USER_MODEL': 'core.User',
+    'PASSWORD_RESET_CONFIRM_URL': '#/password/reset/confirm/{uid}/{token}',
+    'USERNAME_RESET_CONFIRM_URL': '#/username/reset/confirm/{uid}/{token}',
+    
+    # Utiliser les sérialiseurs de base de djoser pour la connexion
+    'SERIALIZERS': {
+        'user': 'core.serializers.UserSerializer', 
+        'user_create': 'djoser.serializers.UserCreateSerializer',
+        'current_user': 'core.serializers.UserSerializer',
+    }
+}
 
 
 # Internationalization
