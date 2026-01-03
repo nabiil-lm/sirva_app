@@ -1,0 +1,6 @@
+
+# Sensitive files
+.env
+db.sqlite3
+error.txt
+users_backup.json
