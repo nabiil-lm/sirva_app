@@ -1,0 +1,42 @@
+name: Auto-Merge Feature vers Dev
+
+on:
+  push:
+    branches:
+      - 'feature/**' # Le '**' permet d'inclure les sous-dossiers (ex: feature/ui/button)
+
+jobs:
+  merge-feature-to-dev:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Nécessaire pour pousser sur dev
+
+    steps:
+      # 1. Récupération de l'historique complet pour le merge
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Config Git
+      - name: Configuration Git
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+
+      # 3. Bascule sur dev et fusion de la branche actuelle
+      - name: Merge branche courante -> Dev
+        run: |
+          # On se place sur la branche dev
+          git checkout dev
+          
+          # On s'assure d'avoir la version la plus récente de dev
+          git pull origin dev
+          
+          # On fusionne la branche qui a déclenché le workflow
+          # ${{ github.ref_name }} contient le nom de la branche (ex: feature/login)
+          echo "Fusion de ${{ github.ref_name }} dans dev..."
+          git merge origin/${{ github.ref_name }} --no-edit
+          
+          # On envoie les changements
+          git push origin dev
