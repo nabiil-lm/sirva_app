@@ -1,0 +1,34 @@
+name: Déploiement sur Serveur
+
+on:
+  push:
+    branches: [ "master" ] # Se lance quand on push sur main
+  workflow_dispatch:      # Permet de lancer manuellement
+
+jobs:
+  deploy-via-ssh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Exécution des commandes sur le serveur
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: 48.220.33.123
+          username: Antonio
+          password: 'DvpSecuWeb123'  # Votre mot de passe
+          port: 22
+          script: |
+            # 1. Se rendre dans le dossier
+            cd /home/Antonio/sirva_app
+            fuser -k 8080/tcp
+            git pull
+            
+            # 2. Activer l'environnement virtuel
+            source venv/bin/activate
+            
+            # 3. Lancer Docker Compose
+            docker-compose up -d
+            
+            # 4. Lancer Django Server
+            # ATTENTION : J'utilise 'nohup' et '&' pour lancer ça en arrière-plan.
+            # Sans ça, GitHub Actions restera bloqué à tourner à l'infini car le serveur ne rend jamais la main.
+            nohup python3 manage.py runserver 0.0.0.0:8080 > /dev/null 2>&1 &
