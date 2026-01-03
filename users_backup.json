@@ -1,0 +1,74 @@
+[
+{
+  "model": "core.user",
+  "pk": 1,
+  "fields": {
+    "password": "pbkdf2_sha256$1000000$9JRJYAUFZJwkUmt6xhKJEs$QUfB1jk5V4ziWWQHPHwW8qwZwmBSR6EPx0XsCz8404g=",
+    "last_login": null,
+    "is_superuser": true,
+    "first_name": "",
+    "last_name": "",
+    "is_staff": true,
+    "is_active": true,
+    "date_joined": "2025-10-22T12:46:31.945Z",
+    "role": "ADMIN",
+    "email": "root@sirva.com",
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "core.user",
+  "pk": 2,
+  "fields": {
+    "password": "pbkdf2_sha256$1000000$t12qWdQri2CGSppD1ZSHkk$RXgHNuFKQDBDckP8VnSAU6QhNsNJEbKwyetDzwXh4SM=",
+    "last_login": "2025-11-10T16:58:19.029Z",
+    "is_superuser": true,
+    "first_name": "Super Admin",
+    "last_name": "",
+    "is_staff": true,
+    "is_active": true,
+    "date_joined": "2025-10-22T12:48:59.391Z",
+    "role": "ADMIN",
+    "email": "admin@sirva.com",
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "core.user",
+  "pk": 3,
+  "fields": {
+    "password": "pbkdf2_sha256$1000000$NTeOi3USkfYmZmklQeBiSN$38pYJ9W4nbIC4QH4Mk/xcsFDkOBD3H2e/MZ4rP2qJ60=",
+    "last_login": "2025-11-10T17:00:00.459Z",
+    "is_superuser": false,
+    "first_name": "Application Manager",
+    "last_name": "",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2025-10-22T12:48:59.766Z",
+    "role": "AM",
+    "email": "am@sirva.com",
+    "groups": [],
+    "user_permissions": []
+  }
+},
+{
+  "model": "core.user",
+  "pk": 4,
+  "fields": {
+    "password": "pbkdf2_sha256$1000000$hRIbKlW67NuBFTo3u2H2n1$K0A9VTHysdBnL/4q/ExBdUjxwj/x1s1WFe8LehUezFU=",
+    "last_login": "2025-12-06T12:40:03.713Z",
+    "is_superuser": false,
+    "first_name": "Security Officer",
+    "last_name": "",
+    "is_staff": false,
+    "is_active": true,
+    "date_joined": "2025-10-22T12:49:00.164Z",
+    "role": "SO",
+    "email": "so@sirva.com",
+    "groups": [],
+    "user_permissions": []
+  }
+}
+]
