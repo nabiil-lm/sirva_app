@@ -16,17 +16,16 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.conf import settings
+from django.conf.urls.static import static
 
 urlpatterns = [
-
-    # Le chemin vide ('') pointe vers l'application 'core'
-    path('', include('core.urls')),
-    
     path('admin/', admin.site.urls),
-
-    # 🚨 ROUTE PRINCIPALE DE L'API 🚨
-    # Toutes les requêtes API (ex: /api/dossiers/) seront gérées par l'application 'core'
-    path('api/', include('core.urls')),
-
-
+    
+    # Include core.urls directly at root level (they already have /api/ prefix)
+    path('', include('core.urls')),
 ]
+
+# Serve media files in development
+if settings.DEBUG:
+    urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

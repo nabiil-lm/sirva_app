@@ -1,0 +1,39 @@
+name: Merge Manuel Dev -> Master
+
+on:
+  workflow_dispatch: # Ce mot-clé active le bouton de lancement manuel
+
+jobs:
+  release-job:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Requis pour pousser la fusion sur master
+
+    steps:
+      # 1. Récupération de tout l'historique
+      - name: Checkout du code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # 2. Configuration de l'identité du robot
+      - name: Configuration Git
+        run: |
+          git config --global user.name 'GitHub Actions'
+          git config --global user.email 'actions@github.com'
+
+      # 3. Exécution de la fusion
+      - name: Fusionner Dev dans Master
+        run: |
+          # Bascule sur la branche de destination (master)
+          git checkout master
+          
+          # On s'assure d'avoir la dernière version de master avant de commencer
+          git pull origin master
+          
+          # On fusionne la branche dev
+          echo "Fusion de origin/dev vers master..."
+          git merge origin/dev --no-edit
+          
+          # On pousse le résultat
+          git push origin master

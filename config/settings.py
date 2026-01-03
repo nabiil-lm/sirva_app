@@ -11,26 +11,25 @@ https://docs.djangoproject.com/en/5.2/ref/settings/
 """
 import os
 from dotenv import load_dotenv
-import dj_database_url # Nous l'installerons plus tard, mais c'est pour la propreté
+import dj_database_url
 from pathlib import Path
-
-# Chargez les variables du fichier .env
-load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Load environment variables from .env file
+load_dotenv()
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
-
-# SECURITY WARNING: keep the secret key used in production secret!
+# Quick-start development settings
 SECRET_KEY = os.getenv('SECRET_KEY')
-
-# SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-
 ALLOWED_HOSTS = []
+
+# 🚨 GEMINI API KEY - Make sure this is accessible
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
+if not GEMINI_API_KEY:
+    import warnings
+    warnings.warn("⚠️ GEMINI_API_KEY is not set in environment variables!")
 
 
 # Application definition
@@ -43,6 +42,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'rest_framework',
+    'rest_framework.authtoken',  # ADD THIS LINE
     'corsheaders',
     # 🚨 NOUVELLES APPLICATIONS D'AUTHENTIFICATION 🚨
     'djoser',
@@ -53,35 +53,41 @@ INSTALLED_APPS = [
 AUTH_USER_MODEL = 'core.User'
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
-    'django.middleware.csrf.CsrfViewMiddleware',
+    # 'django.middleware.csrf.CsrfViewMiddleware',  # Comment this out or remove for API-only
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
-# 🚨 CONFIGURATION SPÉCIFIQUE À DRF 🚨
+# CORS Configuration
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+CORS_ALLOW_CREDENTIALS = True
+
+# CSRF Configuration - REQUIRED for cross-origin POST requests
+CSRF_TRUSTED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+# REST Framework Configuration
 REST_FRAMEWORK = {
-    # Nous utiliserons l'authentification par session pour l'Admin, mais JWT pour l'API
-    'DEFAULT_AUTHENTICATION_CLASSES': (
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework.authentication.TokenAuthentication',
         'rest_framework.authentication.SessionAuthentication',
-        # Nous allons ajouter l'authentification JWT ici plus tard
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
-    'DEFAULT_PERMISSION_CLASSES': (
-        'rest_framework.permissions.IsAuthenticated',
-    ),
-    # Utiliser JSON pour le rendu par défaut
-    'DEFAULT_RENDERER_CLASSES': (
-        'rest_framework.renderers.JSONRenderer',
-        'rest_framework.renderers.BrowsableAPIRenderer',
-    )
+    ],
 }
 
-# 🚨 CONFIGURATION POUR CORS (Même si c'est un monolithe, c'est utile) 🚨
-CORS_ALLOW_ALL_ORIGINS = True # À changer pour des domaines spécifiques en production
+# Disable CSRF for development (re-enable for production with proper token handling)
+CSRF_COOKIE_SECURE = False
+CSRF_COOKIE_HTTPONLY = False
 
 ROOT_URLCONF = 'config.urls'
 
@@ -122,20 +128,8 @@ DATABASES = {
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
-AUTH_PASSWORD_VALIDATORS = [
-    {
-        'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
-    },
-    {
-        'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
-    },
-]
+# CLEARED FOR DEVELOPMENT: Allow simple passwords
+AUTH_PASSWORD_VALIDATORS = []
 
 # Configuration Djoser
 DJOSER = {
@@ -147,7 +141,7 @@ DJOSER = {
     # Utiliser les sérialiseurs de base de djoser pour la connexion
     'SERIALIZERS': {
         'user': 'core.serializers.UserSerializer', 
-        'user_create': 'djoser.serializers.UserCreateSerializer',
+        'user_create': 'core.serializers.UserCreateSerializer', # CHANGED: Use custom serializer
         'current_user': 'core.serializers.UserSerializer',
     }
 }
@@ -174,3 +168,25 @@ STATIC_URL = 'static/'
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+# NEW: Media files configuration
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'uploads'
+
+# Create uploads directory if it doesn't exist
+MEDIA_ROOT.mkdir(exist_ok=True)
+
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'handlers': {
+        'console': {
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'root': {
+        'handlers': ['console'],
+        'level': 'DEBUG',
+    },
+}
