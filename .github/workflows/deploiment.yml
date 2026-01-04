@@ -3,7 +3,7 @@ name: Déploiement sur Serveur
 on:
   push:
     branches: [ "master" ] # Se lance quand on push sur main
-  #workflow_dispatch:      # Permet de lancer manuellement
+  workflow_dispatch:      # Permet de lancer manuellement
 
 jobs:
   deploy-via-ssh:
