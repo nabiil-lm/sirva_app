@@ -31,4 +31,4 @@ jobs:
             # 4. Lancer Django Server
             # ATTENTION : J'utilise 'nohup' et '&' pour lancer ça en arrière-plan.
             # Sans ça, GitHub Actions restera bloqué à tourner à l'infini car le serveur ne rend jamais la main.
-            nohup python3 manage.py runserver 0.0.0.0:8080 &
+            nohup python3 manage.py runserver 0.0.0.0:8080 > /dev/null 2>&1 &
