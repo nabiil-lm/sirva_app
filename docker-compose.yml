@@ -43,19 +43,19 @@ services:
       - "1025:1025" # Port SMTP (pour l'application Django)
 
   # 5. APPLICATION DJANGO (Placeholder)
-  web:
-    build: . # On utilisera un Dockerfile à la racine pour l'instant
-    command: tail -f /dev/null # Placeholder: Empêche le conteneur de s'arrêter
-    volumes:
-      - .:/app # Monte le répertoire courant dans le conteneur
-    ports:
-      - "8000:8000"
-    env_file:
-      - .env
-    depends_on:
-      - postgres
-      - redis
-      - minio
+  # web:
+  #   build: . # On utilisera un Dockerfile à la racine pour l'instant
+  #   command: tail -f /dev/null # Placeholder: Empêche le conteneur de s'arrêter
+  #   volumes:
+  #     - .:/app # Monte le répertoire courant dans le conteneur
+  #   ports:
+  #     - "8000:8000"
+  #   env_file:
+  #     - .env
+  #   depends_on:
+  #     - postgres
+  #     - redis
+  #     - minio
 
 # Volumes pour la persistance des données
 volumes:
