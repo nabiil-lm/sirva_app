@@ -21,12 +21,9 @@ jobs:
             cd /home/Antonio/sirva_app
             fuser -k 8080/tcp || true
             git pull
-            docker-compose down
             # 2. Activer l'environnement virtuel
             source venv/bin/activate
             
-            # 3. Lancer Docker Compose
-            docker-compose up -d
             
             # 4. Lancer Django Server
             # ATTENTION : J'utilise 'nohup' et '&' pour lancer ça en arrière-plan.
