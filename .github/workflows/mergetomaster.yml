@@ -19,8 +19,8 @@ jobs:
       # 2. Configuration de l'identité du robot
       - name: Configuration Git
         run: |
-          git config --global user.name 'GitHub Actions'
-          git config --global user.email 'actions@github.com'
+          git config --global user.name 'AntonioJuan93'
+          git config --global user.email 'choejortenzin356@gmail.com'
 
       # 3. Exécution de la fusion
       - name: Fusionner Dev dans Master
