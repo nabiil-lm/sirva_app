@@ -1,11 +1,9 @@
-<<<<<<< HEAD
 
 # Sensitive files
 .env
 db.sqlite3
 error.txt
 users_backup.json
-=======
 # .gitignore
 
 # -----------------
@@ -84,4 +82,3 @@ minio_data/
 # API & Credentials
 api_keys.json
 credentials.json
->>>>>>> feature/secondary-features
