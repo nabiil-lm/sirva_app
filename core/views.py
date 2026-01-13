@@ -83,8 +83,8 @@ class DossierViewSet(viewsets.ModelViewSet):
     """
     ViewSet pour les opérations CRUD sur les Dossiers.
     Includes custom actions: full(), submit(), available_templates()
-    - AM can see their own dossiers (all statuses)
-    - SO can see ONLY dossiers they are responsible for with status QUESTIONNAIRE_SOUMIS or later
+    - AM can see leur propre dossiers (tous les statuts)
+    - SO can voir UNIQUEMENT les dossiers dont ils sont responsables avec le statut QUESTIONNAIRE_SOUMIS ou ultérieur
     - Admin can see all dossiers
     """
     queryset = Dossier.objects.all().order_by('-updated_at')
@@ -1952,7 +1952,7 @@ class QuestionnaireTemplateViewSet(viewsets.ModelViewSet):
     ViewSet for questionnaire templates.
     - List: AM can see available templates for selection (with simple info)
     - Retrieve: Get full template with all questions
-    - Create/Update/Delete: Only ADMIN can manage
+    - Create/Update/Delete: ADMIN and SO can manage
     """
     queryset = QuestionnaireTemplate.objects.all().order_by('-updated_at')
     permission_classes = [permissions.IsAuthenticated]
@@ -1964,19 +1964,31 @@ class QuestionnaireTemplateViewSet(viewsets.ModelViewSet):
         return QuestionnaireTemplateSerializer
     
     def get_permissions(self):
-        # FIX: Added 'with_questions' to the list of actions allowed for all authenticated users
         if self.action in ['list', 'retrieve', 'available', 'with_questions']:
             # Everyone can view published templates
             permission_classes = [permissions.IsAuthenticated]
         else:
-            # Only admin can create/update/delete
-            permission_classes = [permissions.IsAuthenticated, IsSecurityOfficer]
+            # Admin and SO can create/update/delete
+            permission_classes = [permissions.IsAuthenticated]
         return [permission() for permission in permission_classes]
+    
+    def check_object_permissions(self, request, obj):
+        """Check if user can modify templates"""
+        if request.method in permissions.SAFE_METHODS:
+            # Anyone authenticated can view
+            return super().check_object_permissions(request, obj)
+        
+        # Only Admin and SO can modify
+        user = request.user
+        if not (user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO):
+            raise PermissionDenied("Only Administrators and Security Officers can modify templates")
+        
+        return super().check_object_permissions(request, obj)
     
     def get_queryset(self):
         user = self.request.user
-        if user.is_superuser or user.role == Role.ADMIN:
-            # Admin sees all templates
+        if user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO:
+            # Admin and SO see all templates
             return QuestionnaireTemplate.objects.all().order_by('-updated_at')
         else:
             # Others see only published templates
@@ -1984,7 +1996,28 @@ class QuestionnaireTemplateViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         """Set the creator when creating a template"""
-        serializer.save(created_by=self.request.user)
+        # Check permission
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO):
+            raise PermissionDenied("Only Administrators and Security Officers can create templates")
+        
+        serializer.save(created_by=user)
+    
+    def perform_update(self, serializer):
+        """Check permission before updating"""
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO):
+            raise PermissionDenied("Only Administrators and Security Officers can update templates")
+        
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """Check permission before deleting"""
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO):
+            raise PermissionDenied("Only Administrators and Security Officers can delete templates")
+        
+        instance.delete()
     
     @action(detail=False, methods=['get'])
     def available(self, request):
@@ -2002,13 +2035,13 @@ class QuestionnaireTemplateViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def with_questions(self, request, pk=None):
         """
-        Get template with all its questions for answering.
-        Used when AM selects a template and needs to see all questions.
+        Get template with all its questions for answering or editing.
+        Used when AM selects a template and needs to see all questions,
+        or when Admin/SO edits a template.
         """
         template = self.get_object()
         serializer = QuestionnaireTemplateSerializer(template)
         return Response(serializer.data)
-
 
 # ============================================================================
 # 9. QuestionViewSet
@@ -2025,8 +2058,45 @@ class QuestionViewSet(viewsets.ModelViewSet):
         if self.action in ['list', 'retrieve']:
             permission_classes = [permissions.IsAuthenticated]
         else:
-            permission_classes = [permissions.IsAuthenticated, IsSecurityOfficer]
+            permission_classes = [permissions.IsAuthenticated]
         return [permission() for permission in permission_classes]
+    
+    def check_object_permissions(self, request, obj):
+        """Check if user can modify questions"""
+        if request.method in permissions.SAFE_METHODS:
+            return super().check_object_permissions(request, obj)
+        
+        # Only Admin and SO can modify
+        user = request.user
+        if not (user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO):
+            raise PermissionDenied("Only Administrators and Security Officers can modify questions")
+        
+        return super().check_object_permissions(request, obj)
+    
+    def perform_create(self, serializer):
+        """Check permission before creating"""
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO):
+            raise PermissionDenied("Only Administrators and Security Officers can create questions")
+
+        
+        serializer.save()
+    
+    def perform_update(self, serializer):
+        """Check permission before updating"""
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO):
+            raise PermissionDenied("Only Administrators and Security Officers can update questions")
+        
+        serializer.save()
+    
+    def perform_destroy(self, instance):
+        """Check permission before deleting"""
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO):
+            raise PermissionDenied("Only Administrators and Security Officers can delete questions")
+        
+        instance.delete()
     
     def get_queryset(self):
         questionnaire_id = self.kwargs.get('questionnaire_id')
