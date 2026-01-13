@@ -2079,7 +2079,8 @@ class QuestionViewSet(viewsets.ModelViewSet):
         if not (user.is_superuser or user.role == Role.ADMIN or user.role == Role.SO):
             raise PermissionDenied("Only Administrators and Security Officers can create questions")
 
-        
+
+
         serializer.save()
     
     def perform_update(self, serializer):
@@ -2383,3 +2384,92 @@ class LoginView(APIView):
             }, status=HTTP_200_OK)
         
         return Response(serializer.errors, status=HTTP_400_BAD_REQUEST)
+
+# ============================================================================
+# 13. NEW UserViewSet (Admin User Management)
+# ============================================================================
+
+class UserViewSet(viewsets.ModelViewSet):
+    """
+    ViewSet for user management (Admin only).
+    Allows admins to create, view, update, and delete users.
+    """
+    queryset = User.objects.all().order_by('-date_joined')
+    permission_classes = [permissions.IsAuthenticated]
+    
+    def get_serializer_class(self):
+        """Use UserSerializer for all actions"""
+        return UserSerializer
+    
+    def get_permissions(self):
+        """Only admins can access this viewset"""
+        return [permissions.IsAuthenticated()]
+    
+    def check_permissions(self, request):
+        """Check if user is admin"""
+        super().check_permissions(request)
+        if not (request.user.is_superuser or request.user.role == Role.ADMIN):
+            raise PermissionDenied("Only administrators can manage users")
+    
+    def get_queryset(self):
+        """Only admins can see all users"""
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN):
+            raise PermissionDenied("Only administrators can view users")
+        return User.objects.all().order_by('-date_joined')
+    
+    def perform_create(self, serializer):
+        """Create a new user"""
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN):
+            raise PermissionDenied("Only administrators can create users")
+        
+        # Hash the password before saving
+        password = serializer.validated_data.get('password')
+        user_instance = serializer.save()
+        if password:
+            user_instance.set_password(password)
+            user_instance.save()
+    
+    def perform_update(self, serializer):
+        """Update user details"""
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN):
+            raise PermissionDenied("Only administrators can update users")
+        
+        # If password is being updated, hash it
+        password = serializer.validated_data.get('password')
+        user_instance = serializer.save()
+        if password:
+            user_instance.set_password(password)
+            user_instance.save()
+    
+    def perform_destroy(self, instance):
+        """Delete a user"""
+        user = self.request.user
+        if not (user.is_superuser or user.role == Role.ADMIN):
+            raise PermissionDenied("Only administrators can delete users")
+        
+        # Prevent deleting yourself
+        if instance.id == user.id:
+            raise serializers.ValidationError("You cannot delete your own account")
+        
+        instance.delete()
+    
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        """Get user statistics"""
+        if not (request.user.is_superuser or request.user.role == Role.ADMIN):
+            raise PermissionDenied("Only administrators can view statistics")
+        
+        total_users = User.objects.filter(is_active=True).count()
+        am_count = User.objects.filter(role=Role.AM, is_active=True).count()
+        so_count = User.objects.filter(role=Role.SO, is_active=True).count()
+        admin_count = User.objects.filter(role=Role.ADMIN, is_active=True).count()
+        
+        return Response({
+            'total_users': total_users,
+            'am_count': am_count,
+            'so_count': so_count,
+            'admin_count': admin_count,
+        })

@@ -14,7 +14,8 @@ from .views import (
     QuestionnaireAnswerViewSet,
     AuditLogViewSet,
     home_dashboard,
-    LoginView
+    LoginView,
+    UserViewSet
 )
 
 # ============================================================================
@@ -41,6 +42,7 @@ router = DefaultRouter()
 # Register main ViewSets
 router.register(r'dossiers', DossierViewSet, basename='dossier')
 router.register(r'questionnaires', QuestionnaireTemplateViewSet, basename='questionnaire')
+router.register(r'users', UserViewSet, basename='users')
 
 # Nested routes under dossiers/{dossier_id}/
 dossiers_router = routers.NestedDefaultRouter(router, 'dossiers', lookup='dossier')
