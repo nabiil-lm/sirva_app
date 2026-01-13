@@ -609,6 +609,43 @@ class DossierViewSet(viewsets.ModelViewSet):
             'message': 'Dossier has been finalized and moved to VALIDE status'
         }, status=status.HTTP_200_OK)
 
+    @action(detail=False, methods=['get'])
+    def admin_stats(self, request):
+        """
+        Get dashboard statistics for admin users.
+        Only accessible to superusers and admin role.
+        """
+        if not (request.user.is_superuser or request.user.role == Role.ADMIN):
+            return Response(
+                {'error': 'Only administrators can access statistics'},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Calculate stats
+        total_dossiers = Dossier.objects.count()
+        active_dossiers = Dossier.objects.exclude(
+            status__in=[DossierStatus.VALIDE]
+        ).count()
+        
+        published_templates = QuestionnaireTemplate.objects.filter(
+            status=QuestionnaireStatus.PUBLISHED
+        ).count()
+        
+        total_users = User.objects.filter(is_active=True).count()
+        
+        # Pending reviews (dossiers in PRET_VALIDATION status)
+        pending_reviews = Dossier.objects.filter(
+            status=DossierStatus.PRET_VALIDATION
+        ).count()
+        
+        return Response({
+            'total_dossiers': total_dossiers,
+            'active_dossiers': active_dossiers,
+            'published_templates': published_templates,
+            'total_users': total_users,
+            'pending_reviews': pending_reviews
+        }, status=status.HTTP_200_OK)
+
 # ============================================================================
 # 2. NEW ArchitectureDocViewSet
 # ============================================================================

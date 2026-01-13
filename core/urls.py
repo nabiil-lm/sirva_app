@@ -135,6 +135,12 @@ urlpatterns = [
     # ========== HOME DASHBOARD ==========
     path('', home_dashboard, name='home'),
     path('auth/login/', LoginView.as_view(), name='login'),
+    
+    # ========== ADMIN ENDPOINTS ==========
+    # Admin dashboard stats
+    path('api/dossiers/admin_stats/', 
+         DossierViewSet.as_view({'get': 'admin_stats'}), 
+         name='admin-stats'),
 ]
 
 # Risk Items nested under Risk Register
