@@ -18,19 +18,18 @@ class UserCreateSerializer(BaseUserCreateSerializer):
         fields = ('id', 'email', 'password', 'first_name', 'last_name', 'role')
 
 class UserSerializer(serializers.ModelSerializer):
-    """Serializer for User model with password handling"""
-    password = serializers.CharField(write_only=True, required=False, style={'input_type': 'password'})
+    avatar = serializers.ImageField(required=False, allow_null=True)
     
     class Meta:
         model = User
-        fields = ['id', 'email', 'first_name', 'last_name', 'role', 'is_active', 'date_joined', 'password']
+        fields = ['id', 'email', 'first_name', 'last_name', 'role', 'is_active', 
+                  'date_joined', 'avatar', 'preferences', 'password']  # ADD password here
         read_only_fields = ['id', 'date_joined']
         extra_kwargs = {
-            'password': {'write_only': True, 'required': False}
+            'password': {'write_only': True, 'required': False},  # Make it optional
         }
     
     def create(self, validated_data):
-        """Create user with hashed password"""
         password = validated_data.pop('password', None)
         user = User.objects.create(**validated_data)
         if password:
@@ -39,12 +38,16 @@ class UserSerializer(serializers.ModelSerializer):
         return user
     
     def update(self, instance, validated_data):
-        """Update user, hash password if provided"""
+        # Handle password separately if provided
         password = validated_data.pop('password', None)
+        
+        # Update other fields
         for attr, value in validated_data.items():
             setattr(instance, attr, value)
+        
         if password:
             instance.set_password(password)
+        
         instance.save()
         return instance
 

@@ -42,7 +42,7 @@ router = DefaultRouter()
 # Register main ViewSets
 router.register(r'dossiers', DossierViewSet, basename='dossier')
 router.register(r'questionnaires', QuestionnaireTemplateViewSet, basename='questionnaire')
-router.register(r'users', UserViewSet, basename='users')
+router.register(r'users', UserViewSet, basename='user')
 
 # Nested routes under dossiers/{dossier_id}/
 dossiers_router = routers.NestedDefaultRouter(router, 'dossiers', lookup='dossier')

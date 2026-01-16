@@ -2081,6 +2081,8 @@ class QuestionViewSet(viewsets.ModelViewSet):
 
 
 
+
+
         serializer.save()
     
     def perform_update(self, serializer):
@@ -2402,18 +2404,33 @@ class UserViewSet(viewsets.ModelViewSet):
         return UserSerializer
     
     def get_permissions(self):
-        """Only admins can access this viewset"""
+        """Only admins can access this viewset, except for /me/ endpoint"""
+        # The 'me' action is accessible to all authenticated users
+        if self.action == 'me':
+            return [permissions.IsAuthenticated()]
+        # All other actions require admin
         return [permissions.IsAuthenticated()]
     
     def check_permissions(self, request):
-        """Check if user is admin"""
+        """Check if user is admin for admin-only actions"""
         super().check_permissions(request)
+        
+        # Skip admin check for 'me' action - any authenticated user can access their own profile
+        if self.action == 'me':
+            return
+        
+        # All other actions require admin role
         if not (request.user.is_superuser or request.user.role == Role.ADMIN):
             raise PermissionDenied("Only administrators can manage users")
     
     def get_queryset(self):
         """Only admins can see all users"""
         user = self.request.user
+        
+        # The 'me' action doesn't use queryset, so we can skip this check
+        if self.action == 'me':
+            return User.objects.none()
+        
         if not (user.is_superuser or user.role == Role.ADMIN):
             raise PermissionDenied("Only administrators can view users")
         return User.objects.all().order_by('-date_joined')
@@ -2473,3 +2490,33 @@ class UserViewSet(viewsets.ModelViewSet):
             'so_count': so_count,
             'admin_count': admin_count,
         })
+    
+    @action(detail=False, methods=['get', 'patch'])
+    def me(self, request):
+        """
+        Get or update current user profile.
+        Supports file upload for avatar.
+        Any authenticated user can access their own profile.
+        """
+        user = request.user
+        
+        if request.method == 'GET':
+            serializer = UserSerializer(user, context={'request': request})
+            return Response(serializer.data)
+        
+        # PATCH - Update profile
+        serializer = UserSerializer(user, data=request.data, partial=True, context={'request': request})
+        
+        if serializer.is_valid():
+            # Handle avatar upload if present
+            if 'avatar' in request.FILES:
+                user.avatar = request.FILES['avatar']
+                print(f"[Backend] Avatar uploaded: {user.avatar.name}")
+            
+            serializer.save()
+            
+            print(f"[Backend] User updated - avatar: {user.avatar.url if user.avatar else None}")
+            
+            return Response(serializer.data)
+        
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
