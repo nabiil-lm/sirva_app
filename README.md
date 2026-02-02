@@ -1103,60 +1103,8 @@ graph TB
 
 **Outil** : [PlantUML Web Server](http://www.plantuml.com/plantuml/)
 
-```plantuml
-@startuml
-actor AM as "Application Manager"
-actor SO as "Security Officer"
-participant API as "Django API"
-participant IA1 as "IA1 Service"
-participant IA2 as "IA2 Service"
-participant Gemini as "Gemini AI"
-participant DB as "PostgreSQL"
+<img width="940" height="1329" alt="image" src="https://github.com/user-attachments/assets/5fba3a40-3cc1-4b6b-a57f-342e83c7f1cd" />
 
-== Phase 1: Questionnaire ==
-AM -> API: Create Dossier
-API -> DB: Insert Dossier (EN_EDITION)
-AM -> API: Submit Answers
-API -> DB: Save QuestionnaireAnswers
-AM -> API: Submit for Review
-API -> IA1: Trigger Analysis
-
-== Phase 2: IA1 Analysis ==
-IA1 -> DB: Fetch Answers
-IA1 -> Gemini: Analyze Coherence
-Gemini --> IA1: JSON {score, findings}
-IA1 -> DB: Create IA1Analysis
-IA1 -> DB: Update Status (IA1_COHERENT)
-API --> AM: Analysis Complete
-
-== Phase 3: Architecture Upload ==
-AM -> API: Upload Documents
-API -> DB: Save ArchitectureDocs
-AM -> API: Submit Documents
-API -> IA2: Trigger Cross-Check
-
-== Phase 4: IA2 Analysis ==
-IA2 -> DB: Fetch Answers + Docs
-IA2 -> Gemini: Upload PDFs + Prompt
-Gemini --> IA2: JSON {score, findings}
-IA2 -> DB: Create IA2CrossCheck
-IA2 -> DB: Update Status (IA2_COHERENT)
-API --> AM: Cross-Check Complete
-
-== Phase 5: Risk Management ==
-SO -> API: Create RiskRegister
-SO -> API: Create RiskItems
-API -> DB: Insert Risks (PENDING)
-API --> AM: Risks Available
-
-AM -> API: Accept/Contest/Delegate Risk
-API -> DB: Update RiskItem Status
-SO -> API: Review Contestation
-SO -> API: Final Validation
-API -> DB: Update Status (VALIDE)
-API --> AM: Dossier Validated
-@enduml
-```
 
 ### 3. Modèle de Données ERD
 
