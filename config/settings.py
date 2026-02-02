@@ -101,6 +101,15 @@ REST_FRAMEWORK = {
 # Disable CSRF for development (re-enable for production with proper token handling)
 CSRF_COOKIE_SECURE = False
 CSRF_COOKIE_HTTPONLY = False
+CSRF_COOKIE_SAMESITE = 'Lax'
+CSRF_COOKIE_PATH = '/'
+
+# Session Configuration - CRITICAL for cross-origin requests
+SESSION_COOKIE_SECURE = False  # Set to True in production with HTTPS
+SESSION_COOKIE_HTTPONLY = False  # Allow JavaScript to access for CORS
+SESSION_COOKIE_SAMESITE = 'Lax'
+SESSION_COOKIE_PATH = '/'
+SESSION_COOKIE_AGE = 1209600  # 2 weeks
 
 ROOT_URLCONF = 'config.urls'
 
