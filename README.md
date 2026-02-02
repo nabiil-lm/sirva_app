@@ -3,8 +3,8 @@
 ## 📋 Table des Matières
 
 1. [Présentation](#-présentation)
-2. [Architecture Technique](#-architecture-technique)
-3. [Technologies Utilisées](#-technologies-utilisées)
+2. [Architecture Technique](#architecture-technique)
+3. [Technologies Utilisées](#technologies-utilisees)
 4. [Modèles de Données](#-modèles-de-données)
 5. [Workflow de Validation](#-workflow-de-validation)
 6. [API Endpoints](#-api-endpoints)
@@ -1110,130 +1110,8 @@ graph TB
 
 **Outil** : [dbdiagram.io](https://dbdiagram.io/)
 
-```dbml
-Table User {
-  id integer [pk, increment]
-  email varchar [unique, not null]
-  first_name varchar
-  last_name varchar
-  role varchar [note: 'ADMIN, SO, AM']
-  avatar varchar
-  preferences jsonb
-  created_at timestamp
-}
+<img width="2355" height="1863" alt="Diag 3" src="https://github.com/user-attachments/assets/45ea7d81-7199-4fae-b6b9-5c9b8ed2d8d8" />
 
-Table Dossier {
-  id integer [pk, increment]
-  title varchar [not null]
-  am_id integer [ref: > User.id]
-  so_id integer [ref: > User.id]
-  questionnaire_template_id integer [ref: > QuestionnaireTemplate.id]
-  status varchar [note: '10 statuts possibles']
-  secure_score integer [default: 0]
-  created_at timestamp
-  updated_at timestamp
-}
-
-Table QuestionnaireTemplate {
-  id integer [pk, increment]
-  name varchar [not null]
-  description text
-  status varchar [note: 'DRAFT, PUBLISHED']
-  question_count integer [default: 0]
-}
-
-Table Question {
-  id integer [pk, increment]
-  template_id integer [ref: > QuestionnaireTemplate.id]
-  text text [not null]
-  question_type varchar [note: 'TRUE_FALSE, SINGLE_CHOICE, MULTIPLE_CHOICE, TEXT']
-  choices_json jsonb
-  is_mandatory boolean [default: false]
-  help_text text
-  order integer [default: 0]
-}
-
-Table QuestionnaireAnswer {
-  id integer [pk, increment]
-  dossier_id integer [ref: > Dossier.id]
-  question_id integer [ref: > Question.id]
-  answer_value text
-  answered_at timestamp
-}
-
-Table IA1Analysis {
-  id integer [pk, increment]
-  dossier_id integer [ref: - Dossier.id, note: 'OneToOne']
-  secure_score integer
-  is_coherent boolean
-  analysis_text text
-  findings jsonb
-  analyzed_at timestamp
-}
-
-Table ArchitectureDoc {
-  id integer [pk, increment]
-  dossier_id integer [ref: > Dossier.id]
-  filename varchar
-  display_name varchar
-  description text
-  local_filepath varchar
-  size integer
-  rssi_confirmed boolean [default: false]
-  uploaded_at timestamp
-}
-
-Table IA2CrossCheck {
-  id integer [pk, increment]
-  dossier_id integer [ref: - Dossier.id, note: 'OneToOne']
-  secure_score integer
-  is_coherent boolean
-  analysis_text text
-  findings jsonb
-  analyzed_at timestamp
-}
-
-Table RiskRegister {
-  id integer [pk, increment]
-  dossier_id integer [ref: - Dossier.id, note: 'OneToOne']
-  created_by_id integer [ref: > User.id]
-  status varchar [note: 'DRAFT, SUBMITTED, ACCEPTED']
-  created_at timestamp
-}
-
-Table RiskItem {
-  id integer [pk, increment]
-  register_id integer [ref: > RiskRegister.id]
-  title varchar [not null]
-  description text
-  severity varchar [note: 'CRITICAL, HIGH, MEDIUM, LOW']
-  mitigation text
-  status varchar [note: 'PENDING, ACCEPTED, CONTESTED, DELEGATED, RESOLVED']
-  assigned_to_id integer [ref: > User.id]
-  created_at timestamp
-}
-
-Table RiskContestation {
-  id integer [pk, increment]
-  risk_item_id integer [ref: - RiskItem.id, note: 'OneToOne']
-  reasoning text [not null]
-  contested_by_id integer [ref: > User.id]
-  contested_at timestamp
-  so_decision varchar [note: 'PENDING, ACCEPTED, REJECTED']
-  so_comment text
-  reviewed_at timestamp
-}
-
-Table AuditLog {
-  id integer [pk, increment]
-  dossier_id integer [ref: > Dossier.id]
-  user_id integer [ref: > User.id]
-  action varchar
-  description text
-  timestamp timestamp
-  metadata jsonb
-}
-```
 
 ### 4. Machine à États du Dossier
 
@@ -1270,30 +1148,8 @@ stateDiagram-v2
 
 **Outil** : [draw.io](https://app.diagrams.net/)
 
-```xml
-<!-- À coller dans draw.io -->
-<mxfile>
-  <diagram name="Risk Management Flow">
-    <mxGraphModel>
-      <!-- SO crée risque -->
-      <mxCell id="0" parent="1" vertex="1" value="SO: Create Risk (PENDING)"/>
-      
-      <!-- AM décide -->
-      <mxCell id="1" parent="0" edge="1" value="AM Actions"/>
-      
-      <!-- 3 branches -->
-      <mxCell id="2" parent="1" vertex="1" value="Accept → ACCEPTED → RESOLVED"/>
-      <mxCell id="3" parent="1" vertex="1" value="Contest → CONTESTED → SO Review"/>
-      <mxCell id="4" parent="1" vertex="1" value="Delegate → DELEGATED → Assignee Action"/>
-      
-      <!-- SO Review -->
-      <mxCell id="5" parent="3" edge="1" value="SO Decision"/>
-      <mxCell id="6" parent="5" vertex="1" value="Accept Contest (Risk Invalidated)"/>
-      <mxCell id="7" parent="5" vertex="1" value="Reject Contest → Back to PENDING"/>
-    </mxGraphModel>
-  </diagram>
-</mxfile>
-```
+<img width="851" height="712" alt="Diag 4" src="https://github.com/user-attachments/assets/bb493ff6-8ff7-45ed-bcde-625c6aa6a4b1" />
+
 
 ---
 
