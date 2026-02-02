@@ -98,7 +98,7 @@ SIRVA automatise ce processus en 5 phases structurées avec validation IA et wor
 
 ---
 
-## 🛠️ Technologies Utilisées <a id="technologies-utilisees"></a>
+## 🛠️ Technologies Utilisées <a id="technologies-utilisées"></a>
 
 ### Frameworks & Librairies
 
