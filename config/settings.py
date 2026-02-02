@@ -66,6 +66,7 @@ MIDDLEWARE = [
 # CORS Configuration
 CORS_ALLOWED_ORIGINS = [
     "http://sirva.cloud:3000",
+    "http://sirva.cloud",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
@@ -75,6 +76,7 @@ CORS_ALLOW_CREDENTIALS = True
 # CSRF Configuration - REQUIRED for cross-origin POST requests
 CSRF_TRUSTED_ORIGINS = [
     "http://sirva.cloud:3000",
+    "http://sirva.cloud",
     "http://localhost:3000",
     "http://127.0.0.1:3000",
 ]
