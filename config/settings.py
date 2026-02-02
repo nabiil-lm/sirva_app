@@ -23,7 +23,13 @@ load_dotenv()
 # Quick-start development settings
 SECRET_KEY = os.getenv('SECRET_KEY')
 DEBUG = True
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = [
+    "48.220.33.123",
+    "48.220.33.123:8080",
+    "localhost",
+    "127.0.0.1",
+    "sirva.cloud",
+]
 
 # 🚨 GEMINI API KEY - Make sure this is accessible
 GEMINI_API_KEY = os.getenv('GEMINI_API_KEY')
